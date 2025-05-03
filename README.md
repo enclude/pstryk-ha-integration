@@ -1,14 +1,14 @@
 ## Co właściwie to robi?
 1. Pobiera dane z api.pstryk.pl 
 2. Tworzy i wysyła do HomeAssistant informacje o: 
-a. sensor.pstryk_current_buy - Obecna cena sprzedaży energii elektrycznej brutto przez Pstryk (czyli cena po której kupujemy energię)
-b. sensor.pstryk_current_sell - Obecna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
-a. sensor.pstryk_current_is_cheap - Określenie czy obecna cena energii jest tania (`true` dla tak, `false` dla nie)
-a. sensor.pstryk_current_is_expensive - Określenie czy obecna cena energii jest droga (`true` dla tak, `false` dla nie)
-a. sensor.pstryk_next_buy - Następna cena sprzedaży energii elektrycznej brutto przez Pstryk (czyli cena po której kupujemy energię)
-b. sensor.pstryk_next_sell - Następna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
-a. sensor.pstryk_next_is_cheap - Określenie czy następna cena energii jest tania (`true` dla tak, `false` dla nie)
-a. sensor.pstryk_next_is_expensive - Określenie czy następna cena energii jest droga (`true` dla tak, `false` dla nie)
+- sensor.pstryk_current_buy - Obecna cena sprzedaży energii elektrycznej brutto przez Pstryk (czyli cena po której kupujemy energię)
+- sensor.pstryk_current_sell - Obecna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
+- sensor.pstryk_current_is_cheap - Określenie czy obecna cena energii jest tania (`true` dla tak, `false` dla nie)
+- sensor.pstryk_current_is_expensive - Określenie czy obecna cena energii jest droga (`true` dla tak, `false` dla nie)
+- sensor.pstryk_next_buy - Następna cena sprzedaży energii elektrycznej brutto przez Pstryk (czyli cena po której kupujemy energię)
+- sensor.pstryk_next_sell - Następna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
+- sensor.pstryk_next_is_cheap - Określenie czy następna cena energii jest tania (`true` dla tak, `false` dla nie)
+- sensor.pstryk_next_is_expensive - Określenie czy następna cena energii jest droga (`true` dla tak, `false` dla nie)
 
 ## Jak pobrać token z HomeAssistant
 1. Przejdź do profilu (prawy dolny róg) -> Security -> Long-lived access tokens
