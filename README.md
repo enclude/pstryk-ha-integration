@@ -1,10 +1,22 @@
+## Co właściwie to robi?
+1. Pobiera dane z api.pstryk.pl 
+2. Tworzy i wysyła do HomeAssistant informacje o: 
+a. sensor.pstryk_current_buy - Obecna cena sprzedaży energii elektrycznej brutto przez Pstryk (czyli cena po której kupujemy energię)
+b. sensor.pstryk_current_sell - Obecna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
+a. sensor.pstryk_current_is_cheap - Określenie czy obecna cena energii jest tania (`true` dla tak, `false` dla nie)
+a. sensor.pstryk_current_is_expensive - Określenie czy obecna cena energii jest droga (`true` dla tak, `false` dla nie)
+a. sensor.pstryk_next_buy - Następna cena sprzedaży energii elektrycznej brutto przez Pstryk (czyli cena po której kupujemy energię)
+b. sensor.pstryk_next_sell - Następna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
+a. sensor.pstryk_next_is_cheap - Określenie czy następna cena energii jest tania (`true` dla tak, `false` dla nie)
+a. sensor.pstryk_next_is_expensive - Określenie czy następna cena energii jest droga (`true` dla tak, `false` dla nie)
+
 ## Jak pobrać token z HomeAssistant
 1. Przejdź do profilu (prawy dolny róg) -> Security -> Long-lived access tokens
-![Konfiguracja w Home Assistant](image.png)
+![Konfiguracja w Home Assistant](files/image.png)
 
 ## Jak pobrać token z Pstryk
 1. Otwórz aplikację mobilną Pstryk -> Konto (lewy dolny róg) -> Urządzenia i integracje -> API - Wygeneruj nowy
-![Widok 1 Pstryk](image-1.png) ![Widok 2 Pstryk](image-2.png) ![Widok 3 Pstryk](image-3.png)
+![Widok 1 Pstryk](files/image-1.png) ![Widok 2 Pstryk](files/image-2.png) ![Widok 3 Pstryk](files/image-3.png)
 
 ## Jak używać?
 1. Upewnij się, że masz następujące pakiety: curl jq (`apt install -y curl jq`)
