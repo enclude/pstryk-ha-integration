@@ -15,7 +15,7 @@
 
 ## Jak pobrać token z HomeAssistant
 1. Przejdź do profilu (prawy dolny róg) -> Security -> Long-lived access tokens
-<img src="files/image.png" width="225"/>
+<img src="files/image.png" width="455"/>
 
 ## Jak pobrać token z Pstryk
 1. Otwórz aplikację mobilną Pstryk -> Konto (lewy dolny róg) -> Urządzenia i integracje -> API - Wygeneruj nowy
