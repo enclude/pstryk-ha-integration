@@ -15,11 +15,11 @@
 
 ## Jak pobrać token z HomeAssistant
 1. Przejdź do profilu (prawy dolny róg) -> Security -> Long-lived access tokens
-![Konfiguracja w Home Assistant](files/image.png)
+<img src="files/image.png" width="225"/>
 
 ## Jak pobrać token z Pstryk
 1. Otwórz aplikację mobilną Pstryk -> Konto (lewy dolny róg) -> Urządzenia i integracje -> API - Wygeneruj nowy
-<img src="files/image-1.png" width="145"/> <img src="files/image-2.png" width="145"/> <img src="files/image-3.png" width="145"/> 
+<img src="files/image-1.png" width="165"/> <img src="files/image-2.png" width="165"/> <img src="files/image-3.png" width="165"/> 
 
 ## Jak używać?
 1. Upewnij się, że masz następujące pakiety: curl jq (`apt install -y curl jq`)
