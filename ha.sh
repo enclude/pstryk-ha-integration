@@ -1,11 +1,44 @@
 #!/bin/bash
 
+# Jarosław Zjawiński - kontakt@zjawa.it
+
 # Example usage:
 #   ./ha.sh "PSTRYK_API_TOKEN" "HA_IP" "HA_TOKEN"
 #   ./ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo" 
 # You can add this script to your crontab to run it every hour:
 #   1 * * * * /path/to/ha.sh "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
 
+# ────────────────────────────────────────────────────────────────────────────────
+
+# This script interacts with the Pstryk API and Home Assistant to fetch energy pricing data 
+# and update Home Assistant sensors with the retrieved information. It performs the following tasks:
+#
+# 1. Configuration:
+#    - Accepts three arguments: API_TOKEN, HA_IP, and HA_TOKEN.
+#    - Defines API_BASE, START, and STOP for API requests.
+#    - Sets up a dictionary (HOUR) to store timestamps for the current and next hour.
+#
+# 2. Helper Functions:
+#    - get_json(endpoint): Fetches JSON data from a specified API endpoint.
+#    - jq_field(json, timestamp, field): Extracts a specific field from the JSON data for a given timestamp.
+#    - ha_post(entity_id, json_body): Sends a POST request to update a Home Assistant sensor with the provided JSON body.
+#
+# 3. Data Retrieval:
+#    - Fetches pricing data for buying and selling energy using the get_json function.
+#    - Stores the data in a 2D associative array (A) for the current and next hour.
+#
+# 4. Data Processing:
+#    - Extracts specific fields (price_gross, is_cheap, is_expensive) from the JSON data for each timestamp.
+#    - Populates the associative array (A) with the extracted values.
+#
+# 5. Home Assistant Updates:
+#    - Updates Home Assistant sensors for the current and next hour with the retrieved pricing and flag data.
+#    - Posts the cheapest price comparison for the current hour to a specific Home Assistant sensor.
+#
+# Notes:
+# - The script uses `set -euo pipefail` to ensure robust error handling.
+# - The `jq` tool is used for JSON parsing.
+# - The script assumes that the API and Home Assistant endpoints are accessible and that the provided tokens are valid.
 
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 
