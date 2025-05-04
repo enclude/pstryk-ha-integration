@@ -77,3 +77,16 @@ for row in current next; do
             "{\"state\":\"${A[$row,$price]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\"}}"
   done
 done
+
+ha_post "sensor.pstryk_current_cheapest" \ 
+  "{\"state\":\"$(echo $BUY_JSON | jq --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
+   --arg today "$(date -u +%Y-%m-%d)" '
+  .frames as $f
+  # lowest gross price today ───────────────────────────────
+  | ($f | map(select(.start | startswith($today)))
+          | min_by(.price_gross).price_gross)                as $min
+  # the frame for the current hour ───────────────────────
+  | ($f[] | select(.start==$now).price_gross)               as $cur
+  # compare and return literal true/false ────────────────
+  | ($cur==$min)
+')\"}"
