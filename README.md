@@ -19,8 +19,7 @@
 
 ## Jak pobrać token z Pstryk
 1. Otwórz aplikację mobilną Pstryk -> Konto (lewy dolny róg) -> Urządzenia i integracje -> API - Wygeneruj nowy
-![Widok 1 Pstryk](files/image-1.png) ![Widok 2 Pstryk](files/image-2.png) ![Widok 3 Pstryk](files/image-3.png)
-<img src="files/image1.png" width="425"/> <img src="files/image2.png" width="425"/> 
+<img src="files/image-1.png" width="425"/> <img src="files/image-2.png" width="425"/> <img src="files/image-3.png" width="425"/> 
 
 
 ## Jak używać?
