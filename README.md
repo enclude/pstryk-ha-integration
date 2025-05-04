@@ -5,10 +5,13 @@
 - sensor.pstryk_current_sell - Obecna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
 - sensor.pstryk_current_is_cheap - Określenie czy obecna cena energii jest tania (`true` dla tak, `false` dla nie)
 - sensor.pstryk_current_is_expensive - Określenie czy obecna cena energii jest droga (`true` dla tak, `false` dla nie)
+- sensor.pstryk_current_cheapest - Określenie czy obecna godzina jest najtańsza w danej dobie (od 00:00 do 23:59 dziś; `true` dla tak, `false` dla nie)
 - sensor.pstryk_next_buy - Następna cena sprzedaży energii elektrycznej brutto przez Pstryk (czyli cena po której kupujemy energię)
 - sensor.pstryk_next_sell - Następna cena zakupu energii elektrycznej brutto przez Pstryk (czyli cena po której sprzedajemy energię)
 - sensor.pstryk_next_is_cheap - Określenie czy następna cena energii jest tania (`true` dla tak, `false` dla nie)
 - sensor.pstryk_next_is_expensive - Określenie czy następna cena energii jest droga (`true` dla tak, `false` dla nie)
+- sensor.pstryk_next_cheapest - Określenie czy następna godzina jest najtańsza w danej dobie (od 00:00 do 23:59 dziś; `true` dla tak, `false` dla nie)
+
 
 ## Jak pobrać token z HomeAssistant
 1. Przejdź do profilu (prawy dolny róg) -> Security -> Long-lived access tokens
