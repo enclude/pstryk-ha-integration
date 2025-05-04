@@ -19,8 +19,7 @@
 
 ## Jak pobrać token z Pstryk
 1. Otwórz aplikację mobilną Pstryk -> Konto (lewy dolny róg) -> Urządzenia i integracje -> API - Wygeneruj nowy
-<img src="files/image-1.png" width="425"/> <img src="files/image-2.png" width="425"/> <img src="files/image-3.png" width="425"/> 
-
+<img src="files/image-1.png" width="145"/> <img src="files/image-2.png" width="145"/> <img src="files/image-3.png" width="145"/> 
 
 ## Jak używać?
 1. Upewnij się, że masz następujące pakiety: curl jq (`apt install -y curl jq`)
