@@ -132,8 +132,8 @@ ha_post "sensor.pstryk_next_cheapest" \
   # lowest gross price today ───────────────────────────────
   | ($f | map(select(.start | startswith($today)))
           | min_by(.price_gross).price_gross)                as $min
-  # the frame for the current hour ───────────────────────
-  | ($f[] | select(.start==$now).price_gross)               as $cur
+  # the frame for the next hour ───────────────────────
+  | ($f[] | select(.start==$now).price_gross)               as $next
   # compare and return literal true/false ────────────────
-  | ($cur==$min)
+  | ($next==$min)
 ')\"}"
