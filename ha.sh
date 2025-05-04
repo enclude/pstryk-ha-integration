@@ -6,7 +6,7 @@
 #   ./ha.sh "PSTRYK_API_TOKEN" "HA_IP" "HA_TOKEN"
 #   ./ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo" 
 # You can add this script to your crontab to run it every hour:
-#   1 * * * * /path/to/ha.sh "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
+#   1 * * * * /path/to/ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
 #
 # ────────────────────────────────────────────────────────────────────────────────
 #
