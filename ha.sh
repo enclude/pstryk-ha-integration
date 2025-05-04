@@ -68,12 +68,12 @@ done
 # push values to Home‑Assistant
 for row in current next; do
   for flag in is_cheap is_expensive; do
-    ha_post "sensor.pstryk_${row}_${flag}" \
+    ha_post "sensor.pstryk_script_${row}_${flag}" \
             "{\"state\":\"${A[$row,$flag]}\"}"
   done
 
   for price in buy sell; do
-    ha_post "sensor.pstryk_${row}_${price}" \
+    ha_post "sensor.pstryk_script_${row}_${price}" \
             "{\"state\":\"${A[$row,$price]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\"}}"
   done
 done
