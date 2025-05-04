@@ -1,15 +1,15 @@
 #!/bin/bash
-
+#
 # Jarosław Zjawiński - kontakt@zjawa.it
-
+#
 # Example usage:
 #   ./ha.sh "PSTRYK_API_TOKEN" "HA_IP" "HA_TOKEN"
 #   ./ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo" 
 # You can add this script to your crontab to run it every hour:
 #   1 * * * * /path/to/ha.sh "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
-
+#
 # ────────────────────────────────────────────────────────────────────────────────
-
+#
 # This script interacts with the Pstryk API and Home Assistant to fetch energy pricing data 
 # and update Home Assistant sensors with the retrieved information. It performs the following tasks:
 #
@@ -39,6 +39,7 @@
 # - The script uses `set -euo pipefail` to ensure robust error handling.
 # - The `jq` tool is used for JSON parsing.
 # - The script assumes that the API and Home Assistant endpoints are accessible and that the provided tokens are valid.
+# ────────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 
