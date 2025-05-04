@@ -77,7 +77,7 @@ jq_field() {
 ha_post() {
     local entity_id=$1
     local json_body=$2
-    echo "POST to $HA_IP/api/states/$entity_id with body: $json_body"
+    echo "POST to $HA_IP/api/states/sensor.test_$entity_id with body: $json_body"
 }
 
 # Test cases
