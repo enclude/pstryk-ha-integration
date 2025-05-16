@@ -59,16 +59,45 @@ declare -A HOUR=(
 )
 # ────────────────────────────────────────────────────────────────────────────────
 
+# ── CACHE ──────────────────────────────────────────────────────────────────────
+CACHE_FILE="/var/tmp/pstryk_cache.txt"
+
 # --- helpers -------------------------------------------------------------------
-get_json() {      # hit one endpoint once and return its JSON
+get_json() {      # hit one endpoint once and return its JSON, with cache fallback
   local endpoint=$1
-  curl -sG \
+  local cache_key="${endpoint}_$(date -u +"%Y-%m-%dT%H")"
+  local cache_entry
+
+  # Try API
+  local response
+  response=$(curl -sG \
        -H "accept: application/json" \
        -H "Authorization: $API_TOKEN" \
        --data-urlencode resolution=hour \
        --data-urlencode window_start="$START" \
        --data-urlencode window_end="$STOP" \
-       "$API_BASE/$endpoint/"
+       "$API_BASE/$endpoint/") || true
+
+  if [[ -n "$response" && "$response" != "null" && $(jq -e .frames <<<"$response" 2>/dev/null) ]]; then
+    # Save to cache
+    jq -n --arg key "$cache_key" --argjson val "$response" \
+      '{($key): $val}' > tmp_cache_entry.json
+    # Remove old entry for this key
+    grep -v "^$cache_key|" "$CACHE_FILE" 2>/dev/null > tmp_cache.txt || true
+    # Append new entry
+    echo "$cache_key|$(cat tmp_cache_entry.json)" >> tmp_cache.txt
+    mv tmp_cache.txt "$CACHE_FILE"
+    rm -f tmp_cache_entry.json
+    echo "$response"
+  else
+    # Fallback to cache
+    cache_entry=$(grep "^$cache_key|" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
+    if [[ -n "$cache_entry" ]]; then
+      echo "$cache_entry"
+    else
+      echo "{}"
+    fi
+  fi
 }
 
 jq_field() {      # jq_field <json> <timestamp> <field>
