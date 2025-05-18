@@ -44,9 +44,9 @@
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 
 # ── CONFIG ──────────────────────────────────────────────────────────────────────
-API_TOKEN=$1
-HA_IP=$2
-HA_TOKEN=$3
+API_TOKEN="${API_TOKEN:?Environment variable API_TOKEN not set}"
+HA_IP="${HA_IP:?Environment variable HA_IP not set}"
+HA_TOKEN="${HA_TOKEN:?Environment variable HA_TOKEN not set}"
 
 API_BASE="https://api.pstryk.pl/integrations"
 START=$(date -u +"%Y-%m-%dT%H")
@@ -141,9 +141,9 @@ for row in current next; do
   done
 done
 
-ha_post "sensor.pstryk_current_cheapest" \ 
-  "{\"state\":\"$(echo $BUY_JSON | jq --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" '
+ha_post "sensor.pstryk_current_cheapest" \
+  "{\"state\":\"$(echo $BUY_JSON | jq --arg now \"$(date -u +%Y-%m-%dT%H:00:00+00:00)\" \
+   --arg today \"$(date -u +%Y-%m-%d)\" '
   .frames as $f
   # lowest gross price today ───────────────────────────────
   | ($f | map(select(.start | startswith($today)))
@@ -154,9 +154,9 @@ ha_post "sensor.pstryk_current_cheapest" \
   | ($cur==$min)
 ')\"}"
 
-ha_post "sensor.pstryk_next_cheapest" \ 
-  "{\"state\":\"$(echo $BUY_JSON | jq --arg now "$(date -d '+1 hour' -u +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" '
+ha_post "sensor.pstryk_next_cheapest" \
+  "{\"state\":\"$(echo $BUY_JSON | jq --arg now \"$(date -d '+1 hour' -u +%Y-%m-%dT%H:00:00+00:00)\" \
+   --arg today \"$(date -u +%Y-%m-%d)\" '
   .frames as $f
   # lowest gross price today ───────────────────────────────
   | ($f | map(select(.start | startswith($today)))
