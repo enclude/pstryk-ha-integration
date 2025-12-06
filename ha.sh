@@ -49,7 +49,7 @@ HA_IP=$2
 HA_TOKEN=$3
 
 API_BASE="https://api.pstryk.pl/integrations"
-START=$(date -u +"%Y-%m-%dT%H")
+START=$(date -u +"%Y-%m-%dT00")
 STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT%H")
 
 echo $START
