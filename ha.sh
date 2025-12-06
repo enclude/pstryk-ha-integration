@@ -136,6 +136,8 @@ echo "BUY_JSON length: $(echo "$BUY_JSON" | wc -c)"
 echo "SELL_JSON length: $(echo "$SELL_JSON" | wc -c)"
 echo "BUY_JSON has frames: $(echo "$BUY_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
 echo "SELL_JSON has frames: $(echo "$SELL_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
+echo "BUY_JSON content: $BUY_JSON"
+echo "SELL_JSON content: $SELL_JSON"
 
 # fill a 2‑D associative array
 declare -A A
@@ -164,25 +166,33 @@ done
 ha_post "sensor.pstryk_current_cheapest" \
   "{\"state\":\"$(echo $BUY_JSON | jq -r --arg now \"$(date -u +%Y-%m-%dT%H:00:00+00:00)\" \
    --arg today \"$(date -u +%Y-%m-%d)\" '
-  .frames as $f
-  # lowest gross price today ───────────────────────────────
-  | ($f | map(select(.start | startswith($today)))
-          | min_by(.price_gross).price_gross) as $min
-  # the frame for the current hour ───────────────────────
-  | ($f[] | select(.start==$now).price_gross) as $cur
-  # compare and return literal true/false ────────────────
-  | ($cur == $min)
+  if has("frames") then
+    .frames as $f
+    # lowest gross price today ───────────────────────────────
+    | ($f | map(select(.start | startswith($today)))
+            | min_by(.price_gross).price_gross) as $min
+    # the frame for the current hour ───────────────────────
+    | ($f[] | select(.start==$now).price_gross) as $cur
+    # compare and return literal true/false ────────────────
+    | ($cur == $min)
+  else
+    false
+  end
 ')\"}"
 
 ha_post "sensor.pstryk_next_cheapest" \
   "{\"state\":\"$(echo $BUY_JSON | jq -r --arg now \"$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)\" \
    --arg today \"$(date -u +%Y-%m-%d)\" '
-  .frames as $f
-  # lowest gross price today ───────────────────────────────
-  | ($f | map(select(.start | startswith($today)))
-          | min_by(.price_gross).price_gross) as $min
-  # the frame for the next hour ───────────────────────
-  | ($f[] | select(.start==$now).price_gross) as $next
-  # compare and return literal true/false ────────────────
-  | ($next == $min)
+  if has("frames") then
+    .frames as $f
+    # lowest gross price today ───────────────────────────────
+    | ($f | map(select(.start | startswith($today)))
+            | min_by(.price_gross).price_gross) as $min
+    # the frame for the next hour ───────────────────────
+    | ($f[] | select(.start==$now).price_gross) as $next
+    # compare and return literal true/false ────────────────
+    | ($next == $min)
+  else
+    false
+  end
 ')\"}"
