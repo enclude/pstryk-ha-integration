@@ -50,18 +50,10 @@ HA_TOKEN=$3
 
 API_BASE="https://api.pstryk.pl/integrations"
 START=$(date -u +"%Y-%m-%dT%H")
-#START=$(date -u +"%Y-%m-%dT00")
-#START=$(date -u +"%Y-%m-%d")
-#START2=$(date -u +"%Y-%m-%dT00")
 STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT%H")
-#STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT00")
-#STOP=$(date  -u -d '+24 hours' +"%Y-%m-%d")
-#STOP2=$(date  -u -d '+24 hours' +"%Y-%m-%dT00")
 
 echo $START
-#echo $START2
 echo $STOP
-#echo $STOP2
 echo "---"
 
 # first‑dimension labels → timestamps
@@ -105,7 +97,8 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     # Fallback to cache
     cache_entry=$(grep "^$cache_key|" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
     if [[ -n "$cache_entry" ]]; then
-      echo "$cache_entry"
+      # Extract the JSON value from the cache entry
+      echo "$cache_entry" | jq -r ".[\"$cache_key\"]" 2>/dev/null || echo "{}"
     else
       echo "{}"
     fi
@@ -113,7 +106,16 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
 }
 
 jq_field() {      # jq_field <json> <timestamp> <field>
-  jq -r --arg t "$2" ".frames[] | select(.start==\$t) | .$3" <<<"$1"
+  local json="$1"
+  local timestamp="$2" 
+  local field="$3"
+  
+  # Check if JSON has frames before trying to access them
+  if echo "$json" | jq -e 'has("frames")' >/dev/null 2>&1; then
+    jq -r --arg t "$timestamp" ".frames[] | select(.start==\$t) | .$field" <<<"$json"
+  else
+    echo "null"
+  fi
 }
 
 ha_post() {       # ha_post <entity_id> <json_body>
@@ -128,6 +130,12 @@ ha_post() {       # ha_post <entity_id> <json_body>
 # download once, reuse many times
 BUY_JSON=$( get_json pricing )
 SELL_JSON=$( get_json prosumer-pricing )
+
+# Debug: Check if we got valid JSON
+echo "BUY_JSON length: $(echo "$BUY_JSON" | wc -c)"
+echo "SELL_JSON length: $(echo "$SELL_JSON" | wc -c)"
+echo "BUY_JSON has frames: $(echo "$BUY_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
+echo "SELL_JSON has frames: $(echo "$SELL_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
 
 # fill a 2‑D associative array
 declare -A A
