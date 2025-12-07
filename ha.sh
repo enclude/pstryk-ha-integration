@@ -42,6 +42,7 @@
 # ────────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
+sleep 5                      # wait a bit to avoid bad timestamps from too-early execution
 
 # ── CONFIG ──────────────────────────────────────────────────────────────────────
 API_TOKEN=$1
