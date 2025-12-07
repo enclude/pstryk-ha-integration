@@ -73,7 +73,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
   local cache_entry
 
   # Try API
-  echo "API Request: $API_BASE/$endpoint/ with window_start=$START window_end=$STOP"
+  echo "API Request: $API_BASE/$endpoint/ with window_start=$START window_end=$STOP" >&2
   local response
   response=$(curl -sG \
        -H "accept: application/json" \
@@ -82,7 +82,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
        --data-urlencode window_start="$START" \
        --data-urlencode window_end="$STOP" \
        "$API_BASE/$endpoint/") || true
-  echo "API Response for $endpoint: $response"
+  echo "API Response for $endpoint: $response" >&2
 
   if [[ -n "$response" && "$response" != "null" && $(jq -e .frames <<<"$response" 2>/dev/null) ]]; then
     # Save to cache
@@ -140,8 +140,6 @@ echo "BUY_JSON length: $(echo "$BUY_JSON" | wc -c)"
 echo "SELL_JSON length: $(echo "$SELL_JSON" | wc -c)"
 echo "BUY_JSON has frames: $(echo "$BUY_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
 echo "SELL_JSON has frames: $(echo "$SELL_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
-echo "BUY_JSON content: $BUY_JSON"
-echo "SELL_JSON content: $SELL_JSON"
 
 # fill a 2‑D associative array
 declare -A A
