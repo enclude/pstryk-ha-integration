@@ -10,6 +10,7 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
    - Pobiera aktualne i przyszłe ceny energii (zakup/sprzedaż) z api.pstryk.pl
    - Określa czy obecna/następna godzina ma tanie lub drogie stawki
    - Oblicza czy obecna/następna godzina jest najtańsza w danym dniu
+   - Ranking cenowy obecnej godziny (0=najtańsza, 23=najdroższa)
 
 2. **Inteligentny system cache'owania:**
    - Dwupoziomowy cache: dane + znaczniki czasowe
@@ -28,7 +29,8 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
    - Obsługuje zarówno argumenty skryptu jak i zmienne środowiskowe
 
 5. **Integracja z Home Assistant:**
-   - Aktualizuje 10 sensorów na uruchomienie
+   - Aktualizuje 11 sensorów na uruchomienie
+   - Ranking cenowy w skali 0-23 dla precyzyjnych automatyzacji
    - Prawidłowe jednostki (PLN/kWh) i zarządzanie stanem
    - Logowanie debug dla rozwiązywania problemów
 
@@ -39,13 +41,36 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
 - `sensor.pstryk_script_current_is_cheap` - Czy obecna cena jest tania (`true`/`false`)
 - `sensor.pstryk_script_current_is_expensive` - Czy obecna cena jest droga (`true`/`false`)
 - `sensor.pstryk_current_cheapest` - Czy obecna godzina jest najtańsza dzisiaj (`true`/`false`)
+- `sensor.pstryk_current_index` - **Ranking cenowy obecnej godziny (0-23)** gdzie `0` = najtańsza, `23` = najdroższa
 - `sensor.pstryk_script_next_buy` - Następna cena sprzedaży energii przez Pstryk
 - `sensor.pstryk_script_next_sell` - Następna cena zakupu energii przez Pstryk
 - `sensor.pstryk_script_next_is_cheap` - Czy następna cena będzie tania (`true`/`false`)
 - `sensor.pstryk_script_next_is_expensive` - Czy następna cena będzie droga (`true`/`false`)
 - `sensor.pstryk_next_cheapest` - Czy następna godzina będzie najtańsza dzisiaj (`true`/`false`)
 
-### 🔧 Wymagania systemowe:
+### � System rankingu cenowego
+
+Sensor `pstryk_current_index` zapewnia precyzyjny ranking cen na skalę 0-23:
+
+- **Wartość 0:** Obecna godzina ma najniższą cenę w całej dobie
+- **Wartość 1-22:** Pozycja w rankingu (1 = druga najniższa, 22 = druga najwyższa)
+- **Wartość 23:** Obecna godzina ma najwyższą cenę w całej dobie
+
+**Przykład zastosowania w automatyzacjach:**
+```yaml
+# Uruchom pralką tylko gdy cena jest w TOP 6 najtańszych godzin
+automation:
+  - alias: "Uruchom pralkę przy niskich cenach"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.pstryk_current_index
+        below: 6  # TOP 6 najtańszych godzin (0-5)
+    action:
+      - service: switch.turn_on
+        entity_id: switch.washing_machine
+```
+
+### �🔧 Wymagania systemowe:
 
 - `curl` - żądania API i aktualizacje Home Assistant
 - `jq` - parsowanie JSON i ekstrakcja danych

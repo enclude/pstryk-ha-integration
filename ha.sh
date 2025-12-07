@@ -23,6 +23,7 @@
 #    - Fetches current and next hour energy prices (buy/sell)
 #    - Determines if current/next hour has cheap or expensive rates
 #    - Calculates if current/next hour is the cheapest of the day
+#    - Price ranking index for current hour (0=cheapest, 23=most expensive)
 #
 # 2. INTELLIGENT CACHING SYSTEM:
 #    - Two-tier cache: data cache + timestamp cache
@@ -41,8 +42,9 @@
 #    - Supports both script arguments and environment variables
 #
 # 5. HOME ASSISTANT INTEGRATION:
-#    - Updates 8 sensors per run: current/next × buy/sell/cheap/expensive
+#    - Updates 11 sensors per run: current/next × buy/sell/cheap/expensive + cheapest + index
 #    - Additional cheapest hour detection sensors
+#    - Price ranking index sensor (0-23 scale)
 #    - Proper units (PLN/kWh) and state management
 #    - Debug logging for troubleshooting
 #
@@ -289,6 +291,28 @@ for row in current next; do
   A[$row,is_expensive]=$( jq_field "$BUY_JSON"  "$ts" is_expensive )
 done
 
+# Calculate current_index (price ranking for current hour: 0=cheapest, 23=most expensive)
+echo "=== CALCULATING CURRENT INDEX ==="
+current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
+   --arg today "$(date -u +%Y-%m-%d)" '
+  if (.frames | length) > 0 then
+    # Get all frames for today, sorted by price_gross (ascending)
+    (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) as $sorted_frames |
+    # Find the index of current hour in the sorted array
+    ($sorted_frames | map(.start) | index($now)) as $index |
+    if $index != null then
+      $index
+    else
+      "unknown"
+    end
+  else
+    "no_frames"
+  end
+')
+
+echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
+A[current,index]=$current_index
+
 # push values to Home‑Assistant
 for row in current next; do
   for flag in is_cheap is_expensive; do
@@ -301,6 +325,10 @@ for row in current next; do
             "{\"state\":\"${A[$row,$price]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\"}}"
   done
 done
+
+# Send current_index to Home Assistant
+ha_post "sensor.pstryk_current_index" \
+        "{\"state\":\"${A[current,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Current Hour Price Index\",\"description\":\"Price ranking for current hour (0=cheapest, 23=most expensive)\"}}"
 
 # Debug the cheapest calculation
 echo "=== DEBUGGING CHEAPEST CALCULATION ==="
