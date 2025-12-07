@@ -103,45 +103,35 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
       echo "Rate limited detected: $response" >&2
     fi
     
-    # Fallback to cache - try current hour first, then previous hours
-    cache_entry=$(grep "^$cache_key|" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
-    if [[ -n "$cache_entry" ]]; then
-      # Extract the JSON value from the cache entry
-      cached_data=$(echo "$cache_entry" | jq -r ".[\"$cache_key\"]" 2>/dev/null)
-      if [[ "$cached_data" != "null" && -n "$cached_data" ]]; then
-        echo "Using cached data for $cache_key" >&2
-        echo "$cached_data"
-      else
-        # Try to find any previous cache entry for this endpoint
-        prev_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
-        if [[ -n "$prev_cache" ]]; then
-          prev_key=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f1)
-          prev_data=$(echo "$prev_cache" | jq -r ".[\"$prev_key\"]" 2>/dev/null)
-          if [[ "$prev_data" != "null" && -n "$prev_data" ]]; then
-            echo "Using previous cached data for $endpoint" >&2
-            echo "$prev_data"
-          else
-            echo "{}"
-          fi
-        else
-          echo "{}"
-        fi
-      fi
+    # Debug: Show cache file contents
+    echo "Cache file contents:" >&2
+    if [[ -f "$CACHE_FILE" ]]; then
+      echo "Cache entries for $endpoint:" >&2
+      grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | head -3 >&2 || echo "No cache entries for $endpoint" >&2
     else
-      # Try to find any previous cache entry for this endpoint
-      prev_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
-      if [[ -n "$prev_cache" ]]; then
-        prev_key=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f1)
-        prev_data=$(echo "$prev_cache" | jq -r ".[\"$prev_key\"]" 2>/dev/null)
-        if [[ "$prev_data" != "null" && -n "$prev_data" ]]; then
-          echo "Using previous cached data for $endpoint (no current cache)" >&2
-          echo "$prev_data"
-        else
-          echo "{}"
-        fi
+      echo "Cache file $CACHE_FILE does not exist" >&2
+    fi
+    
+    # Fallback to cache - look for the most recent cache entry for this endpoint
+    echo "Searching for cached data for endpoint: $endpoint" >&2
+    
+    # Find the most recent cache entry for this endpoint (any timestamp)
+    latest_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1)
+    if [[ -n "$latest_cache" ]]; then
+      cache_key_found=$(echo "$latest_cache" | cut -d'|' -f1)
+      cache_json=$(echo "$latest_cache" | cut -d'|' -f2-)
+      cache_data=$(echo "$cache_json" | jq -r ".[\"$cache_key_found\"]" 2>/dev/null)
+      
+      if [[ "$cache_data" != "null" && -n "$cache_data" && "$cache_data" != "{}" ]]; then
+        echo "Using cached data from $cache_key_found for $endpoint" >&2
+        echo "$cache_data"
       else
+        echo "Found cache entry but data is empty for $endpoint" >&2
         echo "{}"
       fi
+    else
+      echo "No cached entries found for $endpoint" >&2
+      echo "{}"
     fi
   fi
 }
