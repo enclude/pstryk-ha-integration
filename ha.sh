@@ -87,15 +87,19 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
 
   # Check if response is valid (has frames) and not rate limited
   if [[ -n "$response" && "$response" != "null" && $(jq -e .frames <<<"$response" 2>/dev/null) && ! $(echo "$response" | jq -e '.detail' 2>/dev/null) ]]; then
-    # Save to cache
-    jq -n --arg key "$cache_key" --argjson val "$response" \
-      '{($key): $val}' > tmp_cache_entry.json
-    # Remove old entry for this key
-    grep -v "^$cache_key|" "$CACHE_FILE" 2>/dev/null > tmp_cache.txt || true
-    # Append new entry
-    echo "$cache_key|$(cat tmp_cache_entry.json)" >> tmp_cache.txt
+    # Save to cache - use simpler format: key|base64_encoded_json
+    cache_data_encoded=$(echo "$response" | base64 -w 0 2>/dev/null || echo "$response" | base64)
+    
+    # Remove old entries for this key and add new one
+    if [[ -f "$CACHE_FILE" ]]; then
+      grep -v "^$cache_key|" "$CACHE_FILE" 2>/dev/null > tmp_cache.txt || true
+    else
+      touch tmp_cache.txt
+    fi
+    echo "$cache_key|$cache_data_encoded" >> tmp_cache.txt
     mv tmp_cache.txt "$CACHE_FILE"
-    rm -f tmp_cache_entry.json
+    
+    echo "Cached data for $cache_key" >&2
     echo "$response"
   else
     # Check if rate limited
@@ -103,9 +107,16 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
       echo "Rate limited detected: $response" >&2
     fi
     
-    # Debug: Show cache file contents
+    # Debug: Show cache file contents and clean broken entries
     echo "Cache file contents:" >&2
     if [[ -f "$CACHE_FILE" ]]; then
+      # Clean up broken cache entries (those that are just "{" or incomplete)
+      if grep -q "^${endpoint}_.*|{$" "$CACHE_FILE" 2>/dev/null; then
+        echo "Found broken cache entries, cleaning up..." >&2
+        grep -v "^${endpoint}_.*|{$" "$CACHE_FILE" 2>/dev/null > tmp_clean_cache.txt || touch tmp_clean_cache.txt
+        mv tmp_clean_cache.txt "$CACHE_FILE"
+      fi
+      
       echo "Cache entries for $endpoint:" >&2
       grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | head -3 >&2 || echo "No cache entries for $endpoint" >&2
     else
@@ -119,14 +130,17 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     latest_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1)
     if [[ -n "$latest_cache" ]]; then
       cache_key_found=$(echo "$latest_cache" | cut -d'|' -f1)
-      cache_json=$(echo "$latest_cache" | cut -d'|' -f2-)
-      cache_data=$(echo "$cache_json" | jq -r ".[\"$cache_key_found\"]" 2>/dev/null)
+      cache_data_encoded=$(echo "$latest_cache" | cut -d'|' -f2-)
       
-      if [[ "$cache_data" != "null" && -n "$cache_data" && "$cache_data" != "{}" ]]; then
+      # Decode cache data (try base64 first, fallback to direct if it fails)
+      cache_data=$(echo "$cache_data_encoded" | base64 -d 2>/dev/null || echo "$cache_data_encoded")
+      
+      # Validate that we got valid JSON with frames
+      if echo "$cache_data" | jq -e '.frames' >/dev/null 2>&1; then
         echo "Using cached data from $cache_key_found for $endpoint" >&2
         echo "$cache_data"
       else
-        echo "Found cache entry but data is empty for $endpoint" >&2
+        echo "Found cache entry but data is invalid for $endpoint" >&2
         echo "{}"
       fi
     else
