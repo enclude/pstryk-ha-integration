@@ -88,6 +88,11 @@ API_TOKEN=$1
 HA_IP=$2
 HA_TOKEN=$3
 
+# ── CACHE CONFIG ────────────────────────────────────────────────────────────────
+CACHE_FILE="/var/tmp/pstryk_cache.txt"
+CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
+CACHE_MAX_AGE_MINUTES=55
+
 API_BASE="https://api.pstryk.pl/integrations"
 START=$(date -u +"%Y-%m-%dT00")
 STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT%H")
