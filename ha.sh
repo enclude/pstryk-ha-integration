@@ -109,11 +109,7 @@ declare -A HOUR=(
 )
 # ────────────────────────────────────────────────────────────────────────────────
 
-# ── CACHE ──────────────────────────────────────────────────────────────────────
-CACHE_FILE="/var/tmp/pstryk_cache.txt"
-CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
-CACHE_MAX_AGE_MINUTES=55
-
+# ── CACHE FUNCTIONS ─────────────────────────────────────────────────────────────
 # --- helpers -------------------------------------------------------------------
 is_cache_fresh() {    # check if cache is less than 55 minutes old
   local endpoint=$1
@@ -174,10 +170,16 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
        --data-urlencode window_start="$START" \
        --data-urlencode window_end="$STOP" \
        "$API_BASE/$endpoint/") || true
-  echo "API Response for $endpoint: $response" >&2
+  echo "API Response for $endpoint (first 200 chars): $(echo "$response" | head -c 200)" >&2
+
+  # Debug: Check response validity
+  echo "Response validation for $endpoint:" >&2
+  echo "  - Non-empty: $([[ -n "$response" && "$response" != "null" ]] && echo "YES" || echo "NO")" >&2
+  echo "  - Has frames: $(echo "$response" | jq -e '.frames' >/dev/null 2>&1 && echo "YES" || echo "NO")" >&2
+  echo "  - Has detail (rate limit): $(echo "$response" | jq -e '.detail' >/dev/null 2>&1 && echo "YES" || echo "NO")" >&2
 
   # Check if response is valid (has frames) and not rate limited
-  if [[ -n "$response" && "$response" != "null" && $(jq -e .frames <<<"$response" 2>/dev/null) && ! $(echo "$response" | jq -e '.detail' 2>/dev/null) ]]; then
+  if [[ -n "$response" && "$response" != "null" ]] && echo "$response" | jq -e '.frames' >/dev/null 2>&1 && ! echo "$response" | jq -e '.detail' >/dev/null 2>&1; then
     # Save to cache - use simpler format: key|base64_encoded_json
     cache_data_encoded=$(echo "$response" | base64 -w 0 2>/dev/null || echo "$response" | base64)
     
