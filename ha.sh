@@ -182,9 +182,9 @@ current_price=$(echo $BUY_JSON | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+0
 echo "Current hour price: $current_price"
 
 # Show frames for today
-echo "Frames for today:"
+echo "Frames for today sorted by price_gross:"
 echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" '
-  .frames[] | select(.start | startswith($today)) | .start + " -> " + (.price_gross | tostring)
+  .frames[] | select(.start | startswith($today)) | {start, price_gross} | sort_by(.price_gross)[] | .start + " -> " + (.price_gross | tostring)
 ' | head -24
 
 # Simplified version to avoid parsing errors
