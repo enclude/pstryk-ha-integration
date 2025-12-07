@@ -5,40 +5,77 @@
 # Example usage:
 #   ./ha.sh "PSTRYK_API_TOKEN" "HA_IP" "HA_TOKEN"
 #   ./ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
-# You can add this script to your crontab to run it every hour:
+# 
+# Container usage (using environment variables):
+#   docker run --rm -e API_TOKEN="..." -e HA_IP="..." -e HA_TOKEN="..." -v /var/tmp:/var/tmp pstryk-ha
+#
+# Cron job (runs every hour):
 #   1 * * * * /path/to/ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
 #
 # ────────────────────────────────────────────────────────────────────────────────
 #
-# This script interacts with the Pstryk API and Home Assistant to fetch energy pricing data
-# and update Home Assistant sensors with the retrieved information. It performs the following tasks:
+# This script integrates Pstryk energy pricing API with Home Assistant, providing real-time
+# energy price monitoring with intelligent caching and rate limit handling.
 #
-# 1. Configuration:
-#    - Accepts three arguments: API_TOKEN, HA_IP, and HA_TOKEN.
-#    - Defines API_BASE, START, and STOP for API requests.
-#    - Sets up a dictionary (HOUR) to store timestamps for the current and next hour.
+# FEATURES:
+# ═════════════════════════════════════════════════════════════════════════════════
+# 1. ENERGY PRICE MONITORING:
+#    - Fetches current and next hour energy prices (buy/sell)
+#    - Determines if current/next hour has cheap or expensive rates
+#    - Calculates if current/next hour is the cheapest of the day
 #
-# 2. Helper Functions:
-#    - get_json(endpoint): Fetches JSON data from a specified API endpoint.
-#    - jq_field(json, timestamp, field): Extracts a specific field from the JSON data for a given timestamp.
-#    - ha_post(entity_id, json_body): Sends a POST request to update a Home Assistant sensor with the provided JSON body.
+# 2. INTELLIGENT CACHING SYSTEM:
+#    - Two-tier cache: data cache + timestamp cache
+#    - Cache expires after 55 minutes (configurable)
+#    - Base64 encoded cache prevents JSON corruption
+#    - Automatic cleanup of broken/old cache entries
 #
-# 3. Data Retrieval:
-#    - Fetches pricing data for buying and selling energy using the get_json function.
-#    - Stores the data in a 2D associative array (A) for the current and next hour.
+# 3. RATE LIMIT PROTECTION:
+#    - Detects API rate limiting (Polish: "Żądanie zostało zdławione")
+#    - Falls back to cached data when rate limited
+#    - Uses most recent valid cache if current cache unavailable
 #
-# 4. Data Processing:
-#    - Extracts specific fields (price_gross, is_cheap, is_expensive) from the JSON data for each timestamp.
-#    - Populates the associative array (A) with the extracted values.
+# 4. CONTAINERIZATION SUPPORT:
+#    - Can read configuration from environment variables
+#    - Docker-ready with proper volume mounting for cache persistence
+#    - Supports both script arguments and environment variables
 #
-# 5. Home Assistant Updates:
-#    - Updates Home Assistant sensors for the current and next hour with the retrieved pricing and flag data.
-#    - Posts the cheapest price comparison for the current hour to a specific Home Assistant sensor.
+# 5. HOME ASSISTANT INTEGRATION:
+#    - Updates 8 sensors per run: current/next × buy/sell/cheap/expensive
+#    - Additional cheapest hour detection sensors
+#    - Proper units (PLN/kWh) and state management
+#    - Debug logging for troubleshooting
 #
-# Notes:
-# - The script uses `set -euo pipefail` to ensure robust error handling.
-# - The `jq` tool is used for JSON parsing.
-# - The script assumes that the API and Home Assistant endpoints are accessible and that the provided tokens are valid.
+# CONFIGURATION:
+# ═════════════════════════════════════════════════════════════════════════════════
+# Script Arguments: API_TOKEN, HA_IP, HA_TOKEN
+# Environment Variables: API_TOKEN, HA_IP, HA_TOKEN (for container use)
+# Cache Location: /var/tmp/pstryk_cache.txt + /var/tmp/pstryk_cache_timestamps.txt
+# Cache Expiry: 55 minutes (CACHE_MAX_AGE_MINUTES)
+#
+# DATA FLOW:
+# ═════════════════════════════════════════════════════════════════════════════════
+# 1. Check cache freshness (< 55 minutes) → Use cache if fresh
+# 2. If stale cache or no cache → Call Pstryk API
+# 3. If API success → Save to cache + update Home Assistant
+# 4. If API rate limited → Use stale cache as fallback
+# 5. Extract price data for current/next hour
+# 6. Calculate cheapest hour comparisons
+# 7. Update all Home Assistant sensors with new data
+#
+# DEPENDENCIES:
+# ═════════════════════════════════════════════════════════════════════════════════
+# - curl: API requests and Home Assistant updates
+# - jq: JSON parsing and data extraction
+# - base64: Cache encoding/decoding
+# - date: Timestamp handling and cache expiry
+#
+# ERROR HANDLING:
+# ═════════════════════════════════════════════════════════════════════════════════
+# - Robust error handling with `set -euo pipefail`
+# - Graceful fallback to cache when API fails
+# - Null value handling for missing data points
+# - Debug logging to stderr for troubleshooting
 # ────────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
@@ -55,6 +92,7 @@ STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT%H")
 
 echo $START
 echo $STOP
+echo "Cache max age: $CACHE_MAX_AGE_MINUTES minutes"
 echo "---"
 
 # first‑dimension labels → timestamps
@@ -66,12 +104,58 @@ declare -A HOUR=(
 
 # ── CACHE ──────────────────────────────────────────────────────────────────────
 CACHE_FILE="/var/tmp/pstryk_cache.txt"
+CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
+CACHE_MAX_AGE_MINUTES=55
 
 # --- helpers -------------------------------------------------------------------
+is_cache_fresh() {    # check if cache is less than 55 minutes old
+  local endpoint=$1
+  local cache_key="${endpoint}_$(date -u +"%Y-%m-%dT%H")"
+  
+  # Check if timestamp file exists and has entry for this cache key
+  if [[ -f "$CACHE_TIMESTAMP_FILE" ]]; then
+    local cache_timestamp=$(grep "^$cache_key|" "$CACHE_TIMESTAMP_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2)
+    if [[ -n "$cache_timestamp" ]]; then
+      local current_timestamp=$(date +%s)
+      local cache_age_minutes=$(( (current_timestamp - cache_timestamp) / 60 ))
+      
+      echo "Cache age for $cache_key: $cache_age_minutes minutes" >&2
+      
+      if [[ $cache_age_minutes -lt $CACHE_MAX_AGE_MINUTES ]]; then
+        echo "Cache is fresh (< $CACHE_MAX_AGE_MINUTES minutes)" >&2
+        return 0  # Cache is fresh
+      else
+        echo "Cache is stale (>= $CACHE_MAX_AGE_MINUTES minutes)" >&2
+        return 1  # Cache is stale
+      fi
+    fi
+  fi
+  
+  echo "No cache timestamp found for $cache_key" >&2
+  return 1  # No cache or no timestamp
+}
+
 get_json() {      # hit one endpoint once and return its JSON, with cache fallback
   local endpoint=$1
   local cache_key="${endpoint}_$(date -u +"%Y-%m-%dT%H")"
   local cache_entry
+
+  # Check if we have fresh cache first
+  if is_cache_fresh "$endpoint"; then
+    echo "Using fresh cache for $endpoint" >&2
+    # Get data from cache
+    local cached_line=$(grep "^$cache_key|" "$CACHE_FILE" 2>/dev/null | tail -n1)
+    if [[ -n "$cached_line" ]]; then
+      local cache_data_encoded=$(echo "$cached_line" | cut -d'|' -f2-)
+      local cache_data=$(echo "$cache_data_encoded" | base64 -d 2>/dev/null || echo "$cache_data_encoded")
+      
+      if echo "$cache_data" | jq -e '.frames' >/dev/null 2>&1; then
+        echo "$cache_data"
+        return
+      fi
+    fi
+    echo "Fresh cache found but data invalid, falling back to API" >&2
+  fi
 
   # Try API
   echo "API Request: $API_BASE/$endpoint/ with window_start=$START window_end=$STOP" >&2
@@ -99,7 +183,17 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     echo "$cache_key|$cache_data_encoded" >> tmp_cache.txt
     mv tmp_cache.txt "$CACHE_FILE"
     
-    echo "Cached data for $cache_key" >&2
+    # Save timestamp
+    local current_timestamp=$(date +%s)
+    if [[ -f "$CACHE_TIMESTAMP_FILE" ]]; then
+      grep -v "^$cache_key|" "$CACHE_TIMESTAMP_FILE" 2>/dev/null > tmp_timestamps.txt || true
+    else
+      touch tmp_timestamps.txt
+    fi
+    echo "$cache_key|$current_timestamp" >> tmp_timestamps.txt
+    mv tmp_timestamps.txt "$CACHE_TIMESTAMP_FILE"
+    
+    echo "Cached data and timestamp for $cache_key" >&2
     echo "$response"
   else
     # Check if rate limited
