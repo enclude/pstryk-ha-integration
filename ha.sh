@@ -73,6 +73,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
   local cache_entry
 
   # Try API
+  echo "API Request: $API_BASE/$endpoint/ with window_start=$START window_end=$STOP"
   local response
   response=$(curl -sG \
        -H "accept: application/json" \
@@ -81,6 +82,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
        --data-urlencode window_start="$START" \
        --data-urlencode window_end="$STOP" \
        "$API_BASE/$endpoint/") || true
+  echo "API Response for $endpoint: $response"
 
   if [[ -n "$response" && "$response" != "null" && $(jq -e .frames <<<"$response" 2>/dev/null) ]]; then
     # Save to cache
@@ -119,11 +121,13 @@ jq_field() {      # jq_field <json> <timestamp> <field>
 }
 
 ha_post() {       # ha_post <entity_id> <json_body>
-  curl -s -X POST \
+  echo "Posting to HA: $1 -> $2"
+  local response=$(curl -s -X POST \
        -H "Authorization: Bearer $HA_TOKEN" \
        -H "Content-Type: application/json" \
        -d "$2" \
-       "$HA_IP/api/states/$1"
+       "$HA_IP/api/states/$1")
+  echo "HA Response: $response"
 }
 # --------------------------------------------------------------------------------
 
@@ -163,36 +167,70 @@ for row in current next; do
   done
 done
 
-ha_post "sensor.pstryk_current_cheapest" \
-  "{\"state\":\"$(echo $BUY_JSON | jq -r --arg now \"$(date -u +%Y-%m-%dT%H:00:00+00:00)\" \
-   --arg today \"$(date -u +%Y-%m-%d)\" '
-  if has("frames") then
-    .frames as $f
-    # lowest gross price today ───────────────────────────────
-    | ($f | map(select(.start | startswith($today)))
-            | min_by(.price_gross).price_gross) as $min
-    # the frame for the current hour ───────────────────────
-    | ($f[] | select(.start==$now).price_gross) as $cur
-    # compare and return literal true/false ────────────────
-    | ($cur == $min)
+# Debug the cheapest calculation
+echo "=== DEBUGGING CHEAPEST CALCULATION ==="
+echo "Current time: $(date -u +%Y-%m-%dT%H:00:00+00:00)"
+echo "Today date: $(date -u +%Y-%m-%d)"
+
+# Test the individual parts
+min_price=$(echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  .frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross
+')
+echo "Minimum price today: $min_price"
+
+current_price=$(echo $BUY_JSON | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" '
+  .frames[] | select(.start==$now).price_gross
+')
+echo "Current hour price: $current_price"
+
+# Show frames for today
+echo "Frames for today:"
+echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  .frames[] | select(.start | startswith($today)) | .start + " -> " + (.price_gross | tostring)
+' | head -10
+
+# Simplified version to avoid parsing errors
+current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
+   --arg today "$(date -u +%Y-%m-%d)" '
+  if (.frames | length) > 0 then
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames[] | select(.start == $now) | .price_gross) as $current_price |
+    if $current_price and $min_price then
+      if $current_price == $min_price then "true" else "false" end
+    else
+      "unknown"
+    end
   else
-    false
+    "no_frames"
   end
-')\"}"
+')
+
+echo "Current cheapest calculation result: '$current_cheapest_result'"
+echo "Current time: $(date -u +%Y-%m-%dT%H:00:00+00:00)"
+echo "Today date: $(date -u +%Y-%m-%d)"
+
+ha_post "sensor.pstryk_current_cheapest" \
+  "{\"state\":\"$current_cheapest_result\"}"
+
+# Debug the next cheapest calculation
+# Simplified version to avoid parsing errors  
+next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)" \
+   --arg today "$(date -u +%Y-%m-%d)" '
+  if (.frames | length) > 0 then
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames[] | select(.start == $now) | .price_gross) as $next_price |
+    if $next_price and $min_price then
+      if $next_price == $min_price then "true" else "false" end
+    else
+      "unknown"
+    end
+  else
+    "no_frames"
+  end
+')
+
+echo "Next cheapest calculation result: '$next_cheapest_result'"
+echo "Next time: $(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)"
 
 ha_post "sensor.pstryk_next_cheapest" \
-  "{\"state\":\"$(echo $BUY_JSON | jq -r --arg now \"$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)\" \
-   --arg today \"$(date -u +%Y-%m-%d)\" '
-  if has("frames") then
-    .frames as $f
-    # lowest gross price today ───────────────────────────────
-    | ($f | map(select(.start | startswith($today)))
-            | min_by(.price_gross).price_gross) as $min
-    # the frame for the next hour ───────────────────────
-    | ($f[] | select(.start==$now).price_gross) as $next
-    # compare and return literal true/false ────────────────
-    | ($next == $min)
-  else
-    false
-  end
-')\"}"
+  "{\"state\":\"$next_cheapest_result\"}"
