@@ -85,7 +85,8 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
        "$API_BASE/$endpoint/") || true
   echo "API Response for $endpoint: $response" >&2
 
-  if [[ -n "$response" && "$response" != "null" && $(jq -e .frames <<<"$response" 2>/dev/null) ]]; then
+  # Check if response is valid (has frames) and not rate limited
+  if [[ -n "$response" && "$response" != "null" && $(jq -e .frames <<<"$response" 2>/dev/null) && ! $(echo "$response" | jq -e '.detail' 2>/dev/null) ]]; then
     # Save to cache
     jq -n --arg key "$cache_key" --argjson val "$response" \
       '{($key): $val}' > tmp_cache_entry.json
@@ -97,13 +98,50 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     rm -f tmp_cache_entry.json
     echo "$response"
   else
-    # Fallback to cache
+    # Check if rate limited
+    if echo "$response" | jq -e '.detail' >/dev/null 2>&1; then
+      echo "Rate limited detected: $response" >&2
+    fi
+    
+    # Fallback to cache - try current hour first, then previous hours
     cache_entry=$(grep "^$cache_key|" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
     if [[ -n "$cache_entry" ]]; then
       # Extract the JSON value from the cache entry
-      echo "$cache_entry" | jq -r ".[\"$cache_key\"]" 2>/dev/null || echo "{}"
+      cached_data=$(echo "$cache_entry" | jq -r ".[\"$cache_key\"]" 2>/dev/null)
+      if [[ "$cached_data" != "null" && -n "$cached_data" ]]; then
+        echo "Using cached data for $cache_key" >&2
+        echo "$cached_data"
+      else
+        # Try to find any previous cache entry for this endpoint
+        prev_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
+        if [[ -n "$prev_cache" ]]; then
+          prev_key=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f1)
+          prev_data=$(echo "$prev_cache" | jq -r ".[\"$prev_key\"]" 2>/dev/null)
+          if [[ "$prev_data" != "null" && -n "$prev_data" ]]; then
+            echo "Using previous cached data for $endpoint" >&2
+            echo "$prev_data"
+          else
+            echo "{}"
+          fi
+        else
+          echo "{}"
+        fi
+      fi
     else
-      echo "{}"
+      # Try to find any previous cache entry for this endpoint
+      prev_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2-)
+      if [[ -n "$prev_cache" ]]; then
+        prev_key=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f1)
+        prev_data=$(echo "$prev_cache" | jq -r ".[\"$prev_key\"]" 2>/dev/null)
+        if [[ "$prev_data" != "null" && -n "$prev_data" ]]; then
+          echo "Using previous cached data for $endpoint (no current cache)" >&2
+          echo "$prev_data"
+        else
+          echo "{}"
+        fi
+      else
+        echo "{}"
+      fi
     fi
   fi
 }
