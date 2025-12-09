@@ -81,8 +81,8 @@
 # ────────────────────────────────────────────────────────────────────────────────
 
 # Set system time zone to UTC only for this script
-export TZ=UTC
-echo "System time zone temporarily set to UTC for script execution"
+#export TZ=UTC
+#echo "System time zone temporarily set to UTC for script execution"
 
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 sleep 5                      # wait a bit to avoid bad timestamps from too-early execution
