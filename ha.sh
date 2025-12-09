@@ -387,11 +387,23 @@ echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "
 
 # Show sorted prices with timestamps for Warsaw local day (showing Warsaw time)
 echo "Sorted prices for Warsaw local day (index: UTC -> Warsaw local -> price):" >&2
-echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+
+# Calculate current Warsaw offset from UTC (handles both CET +1 and CEST +2)
+WARSAW_OFFSET=$(( ($(TZ='Europe/Warsaw' date +%H) - $(TZ=UTC date +%H) + 24) % 24 ))
+echo "Current Warsaw offset from UTC: +$WARSAW_OFFSET hours" >&2
+
+echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" --argjson offset "$WARSAW_OFFSET" '
   (.frames | map(select(
     .start >= $day_start and .start <= $day_end
   )) | sort_by(.price_gross)) |
-  to_entries | .[] | "\(.key): \(.value.start) -> \(.value.price_gross)"
+  to_entries | .[] | 
+  # Extract hour from UTC timestamp and add offset for Warsaw time
+  (.value.start | split("T")[1] | split(":")[0] | tonumber) as $utc_hour |
+  (($utc_hour + $offset) % 24) as $warsaw_hour |
+  # Format with leading zeros
+  (if .key < 10 then "0" + (.key | tostring) else (.key | tostring) end) as $idx |
+  (if $warsaw_hour < 10 then "0" + ($warsaw_hour | tostring) else ($warsaw_hour | tostring) end) as $wh |
+  "\($idx): \(.value.start) (Warsaw: \($wh):00) -> \(.value.price_gross)"
 ' >&2
 
 # Check if current hour exists in Warsaw local day data
@@ -440,10 +452,16 @@ echo "Current hour price: $current_price"
 
 # Show frames for Warsaw local day
 echo "Frames for Warsaw local day sorted by price_gross:"
-echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" --argjson offset "$WARSAW_OFFSET" '
   [.frames[] | select(
     .start >= $day_start and .start <= $day_end
-  )] | sort_by(.price_gross) | .[] | .start + " -> " + (.price_gross | tostring)
+  )] | sort_by(.price_gross) | to_entries | .[] |
+  # Extract hour from UTC timestamp and add offset for Warsaw time
+  (.value.start | split("T")[1] | split(":")[0] | tonumber) as $utc_hour |
+  (($utc_hour + $offset) % 24) as $warsaw_hour |
+  (if .key < 10 then "0" + (.key | tostring) else (.key | tostring) end) as $idx |
+  (if $warsaw_hour < 10 then "0" + ($warsaw_hour | tostring) else ($warsaw_hour | tostring) end) as $wh |
+  "\($idx): \(.value.start) (Warsaw: \($wh):00) -> \(.value.price_gross)"
 ' | head -24
 
 # Simplified version to avoid parsing errors
