@@ -11,12 +11,14 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
    - Określa czy obecna/następna godzina ma tanie lub drogie stawki
    - Oblicza czy obecna/następna godzina jest najtańsza w danym dniu
    - Ranking cenowy obecnej godziny (0=najtańsza, 23=najdroższa)
+   - **Automatyczne wykrywanie aktualnej godziny** z API (flaga `is_live`)
 
 2. **Inteligentny system cache'owania:**
    - Dwupoziomowy cache: dane + znaczniki czasowe
    - Cache wygasa po 55 minutach (konfigurowalne)
    - Kodowanie base64 zapobiega korupcji danych JSON
    - Automatyczne czyszczenie uszkodzonych/starych wpisów cache
+   - **Przed godziną 14:00 preferuje cache** (ceny na następny dzień dostępne dopiero od 14:00)
 
 3. **Ochrona przed limitami API:**
    - Wykrywa ograniczenia API (komunikat: "Żądanie zostało zdławione")
@@ -33,6 +35,12 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
    - Ranking cenowy w skali 0-23 dla precyzyjnych automatyzacji
    - Prawidłowe jednostki (PLN/kWh) i zarządzanie stanem
    - Logowanie debug dla rozwiązywania problemów
+
+6. **Prawidłowa obsługa stref czasowych:**
+   - Wszystkie obliczenia bazują na czasie warszawskim (Europe/Warsaw)
+   - Automatyczna obsługa zmiany czasu letniego/zimowego (CET/CEST)
+   - Ranking cenowy dla polskiego dnia lokalnego (00:00-23:00 czasu warszawskiego)
+   - Dynamiczne obliczanie przesunięcia UTC (+1h zimą, +2h latem)
 
 ### 📊 Sensory tworzone w Home Assistant:
 
@@ -99,12 +107,39 @@ automation:
 ## 🔄 Jak działa przepływ danych
 
 1. **Sprawdzenie świeżości cache** (< 55 minut) → Użyj cache jeśli świeży
-2. **Jeśli cache przestarzały lub brak** → Wywołaj API Pstryk
-3. **Jeśli API sukces** → Zapisz do cache + zaktualizuj Home Assistant
-4. **Jeśli API ograniczone** → Użyj przestarzałego cache jako fallback
-5. **Ekstrakcja danych cenowych** dla obecnej/następnej godziny
-6. **Obliczenie porównań najtańszej godziny**
-7. **Aktualizacja wszystkich sensorów** Home Assistant nowymi danymi
+2. **Przed 14:00 czasu warszawskiego** → Preferuj cache (ceny na następny dzień jeszcze niedostępne)
+3. **Jeśli cache przestarzały lub brak** → Wywołaj API Pstryk
+4. **Jeśli API sukces** → Zapisz do cache + zaktualizuj Home Assistant
+5. **Jeśli API ograniczone** → Użyj przestarzałego cache jako fallback
+6. **Wykrycie aktualnej godziny** z flagi `is_live` w odpowiedzi API
+7. **Obliczenie granic dnia warszawskiego** w UTC (obsługa DST)
+8. **Ekstrakcja danych cenowych** dla obecnej/następnej godziny
+9. **Obliczenie rankingu cenowego** dla polskiego dnia lokalnego
+10. **Aktualizacja wszystkich sensorów** Home Assistant nowymi danymi
+
+### ⏰ Obsługa stref czasowych
+
+Skrypt prawidłowo obsługuje różnicę między czasem UTC (używanym przez API Pstryk) a czasem warszawskim:
+
+| Czas warszawski | Czas UTC (zima) | Czas UTC (lato) |
+|-----------------|-----------------|-----------------|
+| 00:00 | 23:00 (poprz. dzień) | 22:00 (poprz. dzień) |
+| 02:00 (najtańsza) | 01:00 | 00:00 |
+| 14:00 (nowe ceny) | 13:00 | 12:00 |
+| 23:00 | 22:00 | 21:00 |
+
+**Przykład logów:**
+```
+Warsaw today: 2025-12-09
+Warsaw day start in UTC: 2025-12-08T23:00:00+00:00
+Warsaw day end in UTC: 2025-12-09T22:00:00+00:00
+Current Warsaw offset from UTC: +1 hours
+
+Sorted prices for Warsaw local day (index: UTC -> Warsaw local -> price):
+00: 2025-12-09T01:00:00+00:00 (Warsaw: 02:00) -> 0.35
+01: 2025-12-09T02:00:00+00:00 (Warsaw: 03:00) -> 0.38
+...
+```
 
 ## 🛠️ Rozwiązywanie problemów
 
@@ -127,16 +162,29 @@ curl -sG \
   --data-urlencode "resolution=hour"
 ```
 
+### Problemy ze strefą czasową
+```bash
+# Sprawdź aktualną strefę czasową systemu
+date
+TZ='Europe/Warsaw' date
+
+# Sprawdź przesunięcie UTC
+echo "Warsaw: $(TZ='Europe/Warsaw' date +%H:%M) | UTC: $(TZ=UTC date +%H:%M)"
+```
+
 ### Debug logów
 Skrypt wypisuje szczegółowe logi na stderr. Przekieruj je do pliku:
 ```bash
-./ha.sh "TOKEN" "HA_IP" "HA_TOKEN" 2> debug.log
+./ha_pstryk.sh "TOKEN" "HA_IP" "HA_TOKEN" 2> debug.log
 ```
 
 ### Częste błędy
 - **"Żądanie zostało zdławione"** → API rate limit, skrypt automatycznie użyje cache
 - **"jq: parse error"** → Uszkodzone dane cache, wyczyść pliki cache
 - **Brak aktualizacji sensorów** → Sprawdź token HA i dostępność endpointu 
+- **"Before 14:00 Warsaw time - preferring cache"** → Normalne zachowanie, ceny na następny dzień dostępne od 14:00
+- **"No is_live frame found"** → API nie zwróciło aktualnej godziny, skrypt użyje obliczeń UTC
+- **Nieprawidłowy ranking cenowy** → Sprawdź czy system ma prawidłową strefę czasową 
 
 ## 🚀 Sposób użycia
 
@@ -146,18 +194,18 @@ Skrypt wypisuje szczegółowe logi na stderr. Przekieruj je do pliku:
    apt install -y curl jq
    ```
 
-2. **Umieść plik `ha.sh` w wybranym katalogu:**
+2. **Umieść plik `ha_pstryk.sh` w wybranym katalogu:**
    ```bash
    mkdir -p /opt/pstryk-ha
-   cp ha.sh /opt/pstryk-ha/
-   chmod +x /opt/pstryk-ha/ha.sh
+   cp ha_pstryk.sh /opt/pstryk-ha/
+   chmod +x /opt/pstryk-ha/ha_pstryk.sh
    ```
 
 3. **Dodaj zadanie do crontab (uruchamianie co godzinę):**
    ```bash
    crontab -e
    # Dodaj linię:
-   1 * * * * /opt/pstryk-ha/ha.sh "TWÓJ_PSTRYK_TOKEN" "http://homeassistant.local:8123" "TWÓJ_HA_TOKEN"
+   1 * * * * /opt/pstryk-ha/ha_pstryk.sh "TWÓJ_PSTRYK_TOKEN" "http://homeassistant.local:8123" "TWÓJ_HA_TOKEN"
    ```
 
 ### Uruchomienie w kontenerze Docker
@@ -171,6 +219,7 @@ Skrypt wypisuje szczegółowe logi na stderr. Przekieruj je do pliku:
          - API_TOKEN=TWÓJ_PSTRYK_TOKEN
          - HA_IP=http://homeassistant.local:8123
          - HA_TOKEN=TWÓJ_HA_TOKEN
+         - TZ=Europe/Warsaw  # Ważne dla prawidłowej obsługi stref czasowych
        volumes:
          - /var/tmp:/var/tmp  # Dla trwałości cache
        restart: unless-stopped
@@ -182,22 +231,27 @@ Skrypt wypisuje szczegółowe logi na stderr. Przekieruj je do pliku:
      -e API_TOKEN="TWÓJ_PSTRYK_TOKEN" \
      -e HA_IP="http://homeassistant.local:8123" \
      -e HA_TOKEN="TWÓJ_HA_TOKEN" \
+     -e TZ="Europe/Warsaw" \
      -v /var/tmp:/var/tmp \
      pstryk-ha:latest
    ```
 
 ### Konfiguracja parametrów
-- **Argumenty skryptu:** `./ha.sh "PSTRYK_TOKEN" "HA_IP" "HA_TOKEN"`
-- **Zmienne środowiskowe:** `API_TOKEN`, `HA_IP`, `HA_TOKEN` (dla kontenerów)
+- **Argumenty skryptu:** `./ha_pstryk.sh "PSTRYK_TOKEN" "HA_IP" "HA_TOKEN"`
+- **Zmienne środowiskowe:** `API_TOKEN`, `HA_IP`, `HA_TOKEN`, `TZ` (dla kontenerów)
 - **Lokalizacja cache:** `/var/tmp/pstryk_cache.txt` + `/var/tmp/pstryk_cache_timestamps.txt`
 - **Czas wygaśnięcia cache:** 55 minut (można zmienić w skrypcie: `CACHE_MAX_AGE_MINUTES`)
+- **Strefa czasowa:** `Europe/Warsaw` (automatycznie obsługuje CET/CEST)
 
 ### Testowanie
 ```bash
 # Test pojedynczy
-./ha.sh "TWÓJ_TOKEN" "http://homeassistant.local:8123" "TWÓJ_HA_TOKEN"
+./ha_pstryk.sh "TWÓJ_TOKEN" "http://homeassistant.local:8123" "TWÓJ_HA_TOKEN"
 
 # Sprawdzenie cache
 ls -la /var/tmp/pstryk_cache*
 cat /var/tmp/pstryk_cache_timestamps.txt
+
+# Sprawdzenie ostatniej odpowiedzi API
+cat /tmp/pstryk_last_api_response.json | jq .
 ```
