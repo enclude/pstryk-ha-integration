@@ -94,8 +94,8 @@ CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
 CACHE_MAX_AGE_MINUTES=55
 
 API_BASE="https://api.pstryk.pl/integrations"
-START=$(date -u +"%Y-%m-%dT00")
-STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT%H")
+START=$(date -u +"%Y-%m-%dT00:00:00+00:00")
+STOP=$(date -u -d '+24 hours' +"%Y-%m-%dT%H:00:00+00:00")
 
 echo $START
 echo $STOP
