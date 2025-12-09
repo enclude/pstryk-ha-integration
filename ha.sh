@@ -102,8 +102,7 @@ echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
 
 API_BASE="https://api.pstryk.pl/integrations"
 START=$(date -u +"%Y-%m-%dT00:00:00+00:00")
-STOP=$(date -u -d '+24 hours' +"%Y-%m-%dT%H:00:00+00:00")
-STOP=$(date -u +"%Y-%m-%dT%H:23:59+00:00")
+STOP=$(date -u -d '+24 hours' +"%Y-%m-%dT23:59:59+00:00")
 
 echo $START
 echo $STOP
