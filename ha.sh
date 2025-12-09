@@ -320,6 +320,31 @@ current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00
 echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
 A[current,index]=$current_index
 
+# Debug current_index calculation
+echo "=== DEBUGGING CURRENT INDEX CALCULATION ===" >&2
+echo "Current timestamp: $(date -u +%Y-%m-%dT%H:00:00+00:00)" >&2
+echo "Today date: $(date -u +%Y-%m-%d)" >&2
+
+# Show all timestamps for today
+echo "All timestamps for today:" >&2
+echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  .frames | map(select(.start | startswith($today))) | .[].start
+' >&2
+
+# Show sorted prices with timestamps
+echo "Sorted prices for today:" >&2
+echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) | 
+  to_entries | .[] | "\(.key): \(.value.start) -> \(.value.price_gross)"
+' >&2
+
+# Check if current hour exists in today's data
+current_hour_exists=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
+  --arg today "$(date -u +%Y-%m-%d)" '
+  (.frames | map(select(.start | startswith($today))) | map(.start) | index($now)) // "not_found"
+')
+echo "Current hour exists in today's data: $current_hour_exists" >&2
+
 # push values to Home‑Assistant
 for row in current next; do
   for flag in is_cheap is_expensive; do
