@@ -80,6 +80,10 @@
 # - Debug logging to stderr for troubleshooting
 # ────────────────────────────────────────────────────────────────────────────────
 
+# Set system time zone to UTC only for this script
+export TZ=UTC
+echo "System time zone temporarily set to UTC for script execution"
+
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 sleep 5                      # wait a bit to avoid bad timestamps from too-early execution
 
@@ -96,6 +100,7 @@ CACHE_MAX_AGE_MINUTES=55
 API_BASE="https://api.pstryk.pl/integrations"
 START=$(date -u +"%Y-%m-%dT00:00:00+00:00")
 STOP=$(date -u -d '+24 hours' +"%Y-%m-%dT%H:00:00+00:00")
+STOP=$(date -u +"%Y-%m-%dT%H:23:59+00:00")
 
 echo $START
 echo $STOP
@@ -303,8 +308,8 @@ echo "=== CALCULATING CURRENT INDEX ==="
 current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
    --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    # Get all frames for today in Warsaw timezone (exclude 23:00 UTC which is tomorrow in Warsaw)
-    (.frames | map(select(.start | startswith($today) and (.start | test("T(0[0-9]|1[0-9]|2[0-2]):00:00")))) | sort_by(.price_gross)) as $sorted_frames |
+    # Get all frames for today, sorted by price_gross (ascending)
+    (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) as $sorted_frames |
     # Find the index of current hour in the sorted array
     ($sorted_frames | map(.start) | index($now)) as $index |
     if $index != null then
@@ -371,7 +376,7 @@ echo "Today date: $(date -u +%Y-%m-%d)"
 
 # Test the individual parts
 min_price=$(echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" '
-  .frames | map(select(.start | startswith($today) and (.start | test("T(0[0-9]|1[0-9]|2[0-2]):00:00")))) | min_by(.price_gross).price_gross
+  .frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross
 ')
 echo "Minimum price today: $min_price"
 
@@ -380,17 +385,17 @@ current_price=$(echo $BUY_JSON | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+0
 ')
 echo "Current hour price: $current_price"
 
-# Show frames for today (excluding 23:00 UTC which is tomorrow in Warsaw)
-echo "Frames for today sorted by price_gross (Warsaw time):"
+# Show frames for today
+echo "Frames for today sorted by price_gross:"
 echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
-  [.frames[] | select(.start | startswith($today) and (.start | test("T(0[0-9]|1[0-9]|2[0-2]):00:00")))] | sort_by(.price_gross) | .[] | .start + " -> " + (.price_gross | tostring)
+  [.frames[] | select(.start | startswith($today))] | sort_by(.price_gross) | .[] | .start + " -> " + (.price_gross | tostring)
 ' | head -24
 
 # Simplified version to avoid parsing errors
 current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
    --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    (.frames | map(select(.start | startswith($today) and (.start | test("T(0[0-9]|1[0-9]|2[0-2]):00:00")))) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $current_price |
     if $current_price and $min_price then
       if $current_price == $min_price then "true" else "false" end
@@ -414,7 +419,7 @@ ha_post "sensor.pstryk_current_cheapest" \
 next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)" \
    --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    (.frames | map(select(.start | startswith($today) and (.start | test("T(0[0-9]|1[0-9]|2[0-2]):00:00")))) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $next_price |
     if $next_price and $min_price then
       if $next_price == $min_price then "true" else "false" end
