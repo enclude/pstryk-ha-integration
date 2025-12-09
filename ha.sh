@@ -211,7 +211,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     fi
     
     # Debug: Show cache file contents and clean broken entries
-    echo "Cache file contents:" 
+    echo "Cache file contents:" >&2
     if [[ -f "$CACHE_FILE" ]]; then
       # Clean up broken cache entries (those that are just "{" or incomplete)
       if grep -q "^${endpoint}_.*|{$" "$CACHE_FILE" 2>/dev/null; then
@@ -220,14 +220,14 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
         mv tmp_clean_cache.txt "$CACHE_FILE"
       fi
       
-      echo "Cache entries for $endpoint:" 
+      echo "Cache entries for $endpoint:" >&2
       grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | head -3 >&2 || echo "No cache entries for $endpoint" >&2
     else
-      echo "Cache file $CACHE_FILE does not exist" 
+      echo "Cache file $CACHE_FILE does not exist" >&2
     fi
     
     # Fallback to cache - look for the most recent cache entry for this endpoint
-    echo "Searching for cached data for endpoint: $endpoint" 
+    echo "Searching for cached data for endpoint: $endpoint" >&2
     
     # Find the most recent cache entry for this endpoint (any timestamp)
     latest_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1)
@@ -240,14 +240,14 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
       
       # Validate that we got valid JSON with frames
       if echo "$cache_data" | jq -e '.frames' >/dev/null 2>&1; then
-        echo "Using cached data from $cache_key_found for $endpoint" 
+        echo "Using cached data from $cache_key_found for $endpoint" >&2
         echo "$cache_data"
       else
-        echo "Found cache entry but data is invalid for $endpoint" 
+        echo "Found cache entry but data is invalid for $endpoint" >&2
         echo "{}"
       fi
     else
-      echo "No cached entries found for $endpoint" 
+      echo "No cached entries found for $endpoint" >&2
       echo "{}"
     fi
   fi
@@ -321,12 +321,12 @@ echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
 A[current,index]=$current_index
 
 # Debug current_index calculation
-echo "=== DEBUGGING CURRENT INDEX CALCULATION ===" 
-echo "Current timestamp: $(date -u +%Y-%m-%dT%H:00:00+00:00)" 
-echo "Today date: $(date -u +%Y-%m-%d)" 
+echo "=== DEBUGGING CURRENT INDEX CALCULATION ===" >&2
+echo "Current timestamp: $(date -u +%Y-%m-%dT%H:00:00+00:00)" >&2
+echo "Today date: $(date -u +%Y-%m-%d)" >&2
 
 # Show all timestamps for today
-echo "All timestamps for today:" 
+echo "All timestamps for today:" >&2
 echo "Current timestamp (local): $(date)"
 echo "Current timestamp (UTC): $(date -u)"
 echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
@@ -334,18 +334,18 @@ echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
 ' >&2
 
 # Show sorted prices with timestamps
-echo "Sorted prices for today:" 
+echo "Sorted prices for today:" >&2
 echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
   (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) | 
   to_entries | .[] | "\(.key): \(.value.start) -> \(.value.price_gross)"
-' 
+' >&2
 
 # Check if current hour exists in today's data
 current_hour_exists=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
   --arg today "$(date -u +%Y-%m-%d)" '
   (.frames | map(select(.start | startswith($today))) | map(.start) | index($now)) // "not_found"
 ')
-echo "Current hour exists in today's data: $current_hour_exists" 
+echo "Current hour exists in today's data: $current_hour_exists" >&2
 
 # push values to Home‑Assistant
 for row in current next; do
