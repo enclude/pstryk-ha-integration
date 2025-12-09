@@ -151,7 +151,10 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
   local endpoint=$1
   local cache_key="${endpoint}_$(date -u +"%Y-%m-%dT%H")"
   local cache_entry
-
+  
+  # Get current Warsaw hour (for API fetch restriction)
+  local warsaw_hour=$(TZ='Europe/Warsaw' date +%H | sed 's/^0//')
+  
   # Check if we have fresh cache first
   if is_cache_fresh "$endpoint"; then
     echo "Using fresh cache for $endpoint" >&2
@@ -167,6 +170,25 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
       fi
     fi
     echo "Fresh cache found but data invalid, falling back to API" >&2
+  fi
+
+  # Before 14:00 Warsaw time, prefer cache over API (next day prices not available yet)
+  if [[ $warsaw_hour -lt 14 ]]; then
+    echo "Before 14:00 Warsaw time ($warsaw_hour:xx) - preferring cache over API" >&2
+    # Try to use any available cache first
+    local latest_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1)
+    if [[ -n "$latest_cache" ]]; then
+      local cache_key_found=$(echo "$latest_cache" | cut -d'|' -f1)
+      local cache_data_encoded=$(echo "$latest_cache" | cut -d'|' -f2-)
+      local cache_data=$(echo "$cache_data_encoded" | base64 -d 2>/dev/null || echo "$cache_data_encoded")
+      
+      if echo "$cache_data" | jq -e '.frames' >/dev/null 2>&1; then
+        echo "Using cached data from $cache_key_found (before 14:00 Warsaw)" >&2
+        echo "$cache_data"
+        return
+      fi
+    fi
+    echo "No valid cache found before 14:00, will try API anyway" >&2
   fi
 
   # Try API
