@@ -103,10 +103,16 @@ echo $STOP
 echo "Cache max age: $CACHE_MAX_AGE_MINUTES minutes"
 echo "---"
 
-# first‑dimension labels → timestamps
+# first‑dimension labels → timestamps (convert Europe/Warsaw to UTC for API matching)
+# Get current hour in Warsaw time, then convert to UTC for API timestamp matching
+WARSAW_HOUR=$(TZ=Europe/Warsaw date +%H)
+WARSAW_DATE=$(TZ=Europe/Warsaw date +%Y-%m-%d)
+UTC_CURRENT=$(TZ=UTC date -d "$(TZ=Europe/Warsaw date +%Y-%m-%d\ %H:00:00)" +"%Y-%m-%dT%H:00:00+00:00")
+UTC_NEXT=$(TZ=UTC date -d "$(TZ=Europe/Warsaw date -d '+1 hour' +%Y-%m-%d\ %H:00:00)" +"%Y-%m-%dT%H:00:00+00:00")
+
 declare -A HOUR=(
-  [current]="$(date -u +"%Y-%m-%dT%H:00:00+00:00")"
-  [next]="$(date -u -d '+1 hour' +"%Y-%m-%dT%H:00:00+00:00")"
+  [current]="$UTC_CURRENT"
+  [next]="$UTC_NEXT"
 )
 # ────────────────────────────────────────────────────────────────────────────────
 
@@ -301,8 +307,8 @@ done
 
 # Calculate current_index (price ranking for current hour: 0=cheapest, 23=most expensive)
 echo "=== CALCULATING CURRENT INDEX ==="
-current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" '
+current_index=$(echo "$BUY_JSON" | jq -r --arg now "$UTC_CURRENT" \
+   --arg today "$WARSAW_DATE" '
   if (.frames | length) > 0 then
     # Get all frames for today, sorted by price_gross (ascending)
     (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) as $sorted_frames |
@@ -365,29 +371,30 @@ ha_post "sensor.pstryk_current_index" \
 
 # Debug the cheapest calculation
 echo "=== DEBUGGING CHEAPEST CALCULATION ==="
-echo "Current time: $(date -u +%Y-%m-%dT%H:00:00+00:00)"
-echo "Today date: $(date -u +%Y-%m-%d)"
+echo "Warsaw current time: $(TZ=Europe/Warsaw date +%Y-%m-%d\ %H:%M:%S)"
+echo "UTC current time: $UTC_CURRENT"
+echo "Warsaw today date: $WARSAW_DATE"
 
 # Test the individual parts
-min_price=$(echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+min_price=$(echo $BUY_JSON | jq -r --arg today "$WARSAW_DATE" '
   .frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross
 ')
 echo "Minimum price today: $min_price"
 
-current_price=$(echo $BUY_JSON | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" '
+current_price=$(echo $BUY_JSON | jq -r --arg now "$UTC_CURRENT" '
   .frames[] | select(.start==$now).price_gross
 ')
 echo "Current hour price: $current_price"
 
 # Show frames for today
 echo "Frames for today sorted by price_gross:"
-echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+echo "$BUY_JSON" | jq -r --arg today "$WARSAW_DATE" '
   [.frames[] | select(.start | startswith($today))] | sort_by(.price_gross) | .[] | .start + " -> " + (.price_gross | tostring)
 ' | head -24
 
 # Simplified version to avoid parsing errors
-current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" '
+current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$UTC_CURRENT" \
+   --arg today "$WARSAW_DATE" '
   if (.frames | length) > 0 then
     (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $current_price |
@@ -402,16 +409,16 @@ current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%
 ')
 
 echo "Current cheapest calculation result: '$current_cheapest_result'"
-echo "Current time: $(date -u +%Y-%m-%dT%H:00:00+00:00)"
-echo "Today date: $(date -u +%Y-%m-%d)"
+echo "Warsaw current time: $(TZ=Europe/Warsaw date +%Y-%m-%d\ %H:%M:%S)"
+echo "UTC current time: $UTC_CURRENT"
 
 ha_post "sensor.pstryk_current_cheapest" \
   "{\"state\":\"$current_cheapest_result\"}"
 
 # Debug the next cheapest calculation
 # Simplified version to avoid parsing errors  
-next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" '
+next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$UTC_NEXT" \
+   --arg today "$WARSAW_DATE" '
   if (.frames | length) > 0 then
     (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $next_price |
@@ -426,7 +433,8 @@ next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u -d '+1 hour
 ')
 
 echo "Next cheapest calculation result: '$next_cheapest_result'"
-echo "Next time: $(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)"
+echo "Warsaw next time: $(TZ=Europe/Warsaw date -d '+1 hour' +%Y-%m-%d\ %H:%M:%S)"
+echo "UTC next time: $UTC_NEXT"
 
 ha_post "sensor.pstryk_next_cheapest" \
   "{\"state\":\"$next_cheapest_result\"}"
