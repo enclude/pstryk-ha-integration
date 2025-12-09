@@ -327,6 +327,8 @@ echo "Today date: $(date -u +%Y-%m-%d)" >&2
 
 # Show all timestamps for today
 echo "All timestamps for today:" >&2
+echo "Current timestamp (local): $(date)"
+echo "Current timestamp (UTC): $(date -u)"
 echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
   .frames | map(select(.start | startswith($today))) | .[].start
 ' >&2
