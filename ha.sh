@@ -5,7 +5,7 @@
 # Example usage:
 #   ./ha.sh "PSTRYK_API_TOKEN" "HA_IP" "HA_TOKEN"
 #   ./ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
-# 
+#
 # Container usage (using environment variables):
 #   docker run --rm -e API_TOKEN="..." -e HA_IP="..." -e HA_TOKEN="..." -v /var/tmp:/var/tmp pstryk-ha
 #
@@ -80,10 +80,6 @@
 # - Debug logging to stderr for troubleshooting
 # ────────────────────────────────────────────────────────────────────────────────
 
-# Set system time zone to UTC only for this script
-#export TZ=UTC
-#echo "System time zone temporarily set to UTC for script execution"
-
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 sleep 5                      # wait a bit to avoid bad timestamps from too-early execution
 
@@ -97,12 +93,9 @@ CACHE_FILE="/var/tmp/pstryk_cache.txt"
 CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
 CACHE_MAX_AGE_MINUTES=55
 
-echo "Cache file: "$CACHE_FILE
-echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
-
 API_BASE="https://api.pstryk.pl/integrations"
-START=$(date -u +"%Y-%m-%dT00:00:00+00:00")
-STOP=$(date -u -d '+24 hours' +"%Y-%m-%dT23:59:59+00:00")
+START=$(date -u +"%Y-%m-%dT00")
+STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT%H")
 
 echo $START
 echo $STOP
@@ -121,16 +114,16 @@ declare -A HOUR=(
 is_cache_fresh() {    # check if cache is less than 55 minutes old
   local endpoint=$1
   local cache_key="${endpoint}_$(date -u +"%Y-%m-%dT%H")"
-  
+
   # Check if timestamp file exists and has entry for this cache key
   if [[ -f "$CACHE_TIMESTAMP_FILE" ]]; then
     local cache_timestamp=$(grep "^$cache_key|" "$CACHE_TIMESTAMP_FILE" 2>/dev/null | tail -n1 | cut -d'|' -f2)
     if [[ -n "$cache_timestamp" ]]; then
       local current_timestamp=$(date +%s)
       local cache_age_minutes=$(( (current_timestamp - cache_timestamp) / 60 ))
-      
+
       echo "Cache age for $cache_key: $cache_age_minutes minutes" >&2
-      
+
       if [[ $cache_age_minutes -lt $CACHE_MAX_AGE_MINUTES ]]; then
         echo "Cache is fresh (< $CACHE_MAX_AGE_MINUTES minutes)" >&2
         return 0  # Cache is fresh
@@ -140,7 +133,7 @@ is_cache_fresh() {    # check if cache is less than 55 minutes old
       fi
     fi
   fi
-  
+
   echo "No cache timestamp found for $cache_key" >&2
   return 1  # No cache or no timestamp
 }
@@ -158,7 +151,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     if [[ -n "$cached_line" ]]; then
       local cache_data_encoded=$(echo "$cached_line" | cut -d'|' -f2-)
       local cache_data=$(echo "$cache_data_encoded" | base64 -d 2>/dev/null || echo "$cache_data_encoded")
-      
+
       if echo "$cache_data" | jq -e '.frames' >/dev/null 2>&1; then
         echo "$cache_data"
         return
@@ -189,7 +182,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
   if [[ -n "$response" && "$response" != "null" ]] && echo "$response" | jq -e '.frames' >/dev/null 2>&1 && ! echo "$response" | jq -e '.detail' >/dev/null 2>&1; then
     # Save to cache - use simpler format: key|base64_encoded_json
     cache_data_encoded=$(echo "$response" | base64 -w 0 2>/dev/null || echo "$response" | base64)
-    
+
     # Remove old entries for this key and add new one
     if [[ -f "$CACHE_FILE" ]]; then
       grep -v "^$cache_key|" "$CACHE_FILE" 2>/dev/null > tmp_cache.txt || true
@@ -198,7 +191,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     fi
     echo "$cache_key|$cache_data_encoded" >> tmp_cache.txt
     mv tmp_cache.txt "$CACHE_FILE"
-    
+
     # Save timestamp
     local current_timestamp=$(date +%s)
     if [[ -f "$CACHE_TIMESTAMP_FILE" ]]; then
@@ -208,7 +201,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     fi
     echo "$cache_key|$current_timestamp" >> tmp_timestamps.txt
     mv tmp_timestamps.txt "$CACHE_TIMESTAMP_FILE"
-    
+
     echo "Cached data and timestamp for $cache_key" >&2
     echo "$response"
   else
@@ -216,7 +209,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     if echo "$response" | jq -e '.detail' >/dev/null 2>&1; then
       echo "Rate limited detected: $response" >&2
     fi
-    
+
     # Debug: Show cache file contents and clean broken entries
     echo "Cache file contents:" >&2
     if [[ -f "$CACHE_FILE" ]]; then
@@ -226,25 +219,25 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
         grep -v "^${endpoint}_.*|{$" "$CACHE_FILE" 2>/dev/null > tmp_clean_cache.txt || touch tmp_clean_cache.txt
         mv tmp_clean_cache.txt "$CACHE_FILE"
       fi
-      
+
       echo "Cache entries for $endpoint:" >&2
       grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | head -3 >&2 || echo "No cache entries for $endpoint" >&2
     else
       echo "Cache file $CACHE_FILE does not exist" >&2
     fi
-    
+
     # Fallback to cache - look for the most recent cache entry for this endpoint
     echo "Searching for cached data for endpoint: $endpoint" >&2
-    
+
     # Find the most recent cache entry for this endpoint (any timestamp)
     latest_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1)
     if [[ -n "$latest_cache" ]]; then
       cache_key_found=$(echo "$latest_cache" | cut -d'|' -f1)
       cache_data_encoded=$(echo "$latest_cache" | cut -d'|' -f2-)
-      
+
       # Decode cache data (try base64 first, fallback to direct if it fails)
       cache_data=$(echo "$cache_data_encoded" | base64 -d 2>/dev/null || echo "$cache_data_encoded")
-      
+
       # Validate that we got valid JSON with frames
       if echo "$cache_data" | jq -e '.frames' >/dev/null 2>&1; then
         echo "Using cached data from $cache_key_found for $endpoint" >&2
@@ -262,9 +255,9 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
 
 jq_field() {      # jq_field <json> <timestamp> <field>
   local json="$1"
-  local timestamp="$2" 
+  local timestamp="$2"
   local field="$3"
-  
+
   # Check if JSON has frames before trying to access them
   if echo "$json" | jq -e 'has("frames")' >/dev/null 2>&1; then
     jq -r --arg t "$timestamp" ".frames[] | select(.start==\$t) | .$field" <<<"$json"
@@ -308,13 +301,10 @@ done
 # Calculate current_index (price ranking for current hour: 0=cheapest, 23=most expensive)
 echo "=== CALCULATING CURRENT INDEX ==="
 current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
+   --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    # Get all frames for Poland local day (yesterday 23:00 UTC through today 22:00 UTC)
-    (.frames | map(select(
-      (.start | startswith($today)) or 
-      (.start == ($yesterday + "T23:00:00+00:00"))
-    )) | sort_by(.price_gross)) as $sorted_frames |
+    # Get all frames for today, sorted by price_gross (ascending)
+    (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) as $sorted_frames |
     # Find the index of current hour in the sorted array
     ($sorted_frames | map(.start) | index($now)) as $index |
     if $index != null then
@@ -329,42 +319,6 @@ current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00
 
 echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
 A[current,index]=$current_index
-
-# Debug current_index calculation
-echo "=== DEBUGGING CURRENT INDEX CALCULATION ===" >&2
-echo "Current timestamp: $(date -u +%Y-%m-%dT%H:00:00+00:00)" >&2
-echo "Today date: $(date -u +%Y-%m-%d)" >&2
-
-# Show all timestamps for Poland local day
-echo "All timestamps for Poland local day:" >&2
-echo "Current timestamp (local): $(date)"
-echo "Current timestamp (UTC): $(date -u)"
-echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
-  .frames | map(select(
-    (.start | startswith($today)) or 
-    (.start == ($yesterday + "T23:00:00+00:00"))
-  )) | .[].start
-' >&2
-
-# Show sorted prices with timestamps for Poland local day
-echo "Sorted prices for Poland local day:" >&2
-echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
-  (.frames | map(select(
-    (.start | startswith($today)) or 
-    (.start == ($yesterday + "T23:00:00+00:00"))
-  )) | sort_by(.price_gross)) | 
-  to_entries | .[] | "\(.key): \(.value.start) -> \(.value.price_gross)"
-' >&2
-
-# Check if current hour exists in Poland local day data
-current_hour_exists=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
-  --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
-  (.frames | map(select(
-    (.start | startswith($today)) or 
-    (.start == ($yesterday + "T23:00:00+00:00"))
-  )) | map(.start) | index($now)) // "not_found"
-')
-echo "Current hour exists in Poland local day data: $current_hour_exists" >&2
 
 # push values to Home‑Assistant
 for row in current next; do
@@ -389,11 +343,8 @@ echo "Current time: $(date -u +%Y-%m-%dT%H:00:00+00:00)"
 echo "Today date: $(date -u +%Y-%m-%d)"
 
 # Test the individual parts
-min_price=$(echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
-  .frames | map(select(
-    (.start | startswith($today)) or 
-    (.start == ($yesterday + "T23:00:00+00:00"))
-  )) | min_by(.price_gross).price_gross
+min_price=$(echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  .frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross
 ')
 echo "Minimum price today: $min_price"
 
@@ -402,23 +353,17 @@ current_price=$(echo $BUY_JSON | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+0
 ')
 echo "Current hour price: $current_price"
 
-# Show frames for Poland local day
-echo "Frames for Poland local day sorted by price_gross:"
-echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
-  [.frames[] | select(
-    (.start | startswith($today)) or 
-    (.start == ($yesterday + "T23:00:00+00:00"))
-  )] | sort_by(.price_gross) | .[] | .start + " -> " + (.price_gross | tostring)
+# Show frames for today
+echo "Frames for today sorted by price_gross:"
+echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  [.frames[] | select(.start | startswith($today))] | sort_by(.price_gross) | .[] | .start + " -> " + (.price_gross | tostring)
 ' | head -24
 
 # Simplified version to avoid parsing errors
 current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
+   --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    (.frames | map(select(
-      (.start | startswith($today)) or 
-      (.start == ($yesterday + "T23:00:00+00:00"))
-    )) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $current_price |
     if $current_price and $min_price then
       if $current_price == $min_price then "true" else "false" end
@@ -438,14 +383,11 @@ ha_post "sensor.pstryk_current_cheapest" \
   "{\"state\":\"$current_cheapest_result\"}"
 
 # Debug the next cheapest calculation
-# Simplified version to avoid parsing errors  
+# Simplified version to avoid parsing errors
 next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" --arg yesterday "$(date -u -d 'yesterday' +%Y-%m-%d)" '
+   --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    (.frames | map(select(
-      (.start | startswith($today)) or 
-      (.start == ($yesterday + "T23:00:00+00:00"))
-    )) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $next_price |
     if $next_price and $min_price then
       if $next_price == $min_price then "true" else "false" end
