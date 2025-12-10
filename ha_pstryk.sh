@@ -101,7 +101,10 @@ echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
 
 API_BASE="https://api.pstryk.pl/integrations"
-START=$(date -u +"%Y-%m-%dT00:00:00+00:00")
+# Request data from yesterday 22:00 UTC to cover Warsaw 00:00 in both CET and CEST
+# CET (winter): Warsaw 00:00 = yesterday 23:00 UTC
+# CEST (summer): Warsaw 00:00 = yesterday 22:00 UTC
+START=$(date -u -d 'yesterday 22:00' +"%Y-%m-%dT%H:00:00+00:00")
 STOP=$(date -u +"%Y-%m-%dT23:59:59+00:00")
 
 echo $START
@@ -297,6 +300,11 @@ echo "SELL_JSON length: $(echo "$SELL_JSON" | wc -c)"
 echo "BUY_JSON has frames: $(echo "$BUY_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
 echo "SELL_JSON has frames: $(echo "$SELL_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
 
+# Debug: Show first and last timestamp in API response to verify data range
+echo "First timestamp in BUY_JSON: $(echo "$BUY_JSON" | jq -r '.frames[0].start // "none"')"
+echo "Last timestamp in BUY_JSON: $(echo "$BUY_JSON" | jq -r '.frames[-1].start // "none"')"
+echo "Total frames in BUY_JSON: $(echo "$BUY_JSON" | jq '.frames | length')"
+
 # Get current and next hour from API's is_live flag (most reliable method)
 # The API marks the current hour with is_live:true
 HOUR[current]=$(echo "$BUY_JSON" | jq -r '.frames[] | select(.is_live == true) | .start' 2>/dev/null || echo "")
@@ -389,7 +397,8 @@ echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "
 echo "Sorted prices for Warsaw local day (index: UTC -> Warsaw local -> price):" >&2
 
 # Calculate current Warsaw offset from UTC (handles both CET +1 and CEST +2)
-WARSAW_OFFSET=$(( ($(TZ='Europe/Warsaw' date +%H) - $(TZ=UTC date +%H) + 24) % 24 ))
+# Use 10# prefix to force base 10 interpretation (prevents octal errors with 08, 09)
+WARSAW_OFFSET=$(( (10#$(TZ='Europe/Warsaw' date +%H) - 10#$(TZ=UTC date +%H) + 24) % 24 ))
 echo "Current Warsaw offset from UTC: +$WARSAW_OFFSET hours" >&2
 
 echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" --argjson offset "$WARSAW_OFFSET" '
