@@ -80,10 +80,6 @@
 # - Debug logging to stderr for troubleshooting
 # ────────────────────────────────────────────────────────────────────────────────
 
-# Set system time zone to UTC only for this script
-#export TZ=UTC
-#echo "System time zone temporarily set to UTC for script execution"
-
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 sleep 5                      # wait a bit to avoid bad timestamps from too-early execution
 
@@ -97,25 +93,20 @@ CACHE_FILE="/var/tmp/pstryk_cache.txt"
 CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
 CACHE_MAX_AGE_MINUTES=55
 
-echo "Cache file: "$CACHE_FILE
-echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
-
 API_BASE="https://api.pstryk.pl/integrations"
-START=$(date -u +"%Y-%m-%dT00:00:00+00:00")
-STOP=$(date -u +"%Y-%m-%dT23:59:59+00:00")
+START=$(date -u +"%Y-%m-%dT00")
+STOP=$(date  -u -d '+24 hours' +"%Y-%m-%dT%H")
 
 echo $START
 echo $STOP
 echo "Cache max age: $CACHE_MAX_AGE_MINUTES minutes"
 echo "---"
 
-# first‑dimension labels → timestamps (UTC format for Pstryk API)
-# We will get current hour from API's is_live flag after fetching data
-# For now, declare empty HOUR array - will be populated after API call
-declare -A HOUR
-
-echo "Local time (Warsaw): $(TZ='Europe/Warsaw' date +"%Y-%m-%d %H:%M:%S %Z")"
-echo "UTC time: $(TZ=UTC date +"%Y-%m-%d %H:%M:%S %Z")"
+# first‑dimension labels → timestamps
+declare -A HOUR=(
+  [current]="$(date -u +"%Y-%m-%dT%H:00:00+00:00")"
+  [next]="$(date -u -d '+1 hour' +"%Y-%m-%dT%H:00:00+00:00")"
+)
 # ────────────────────────────────────────────────────────────────────────────────
 
 # ── CACHE FUNCTIONS ─────────────────────────────────────────────────────────────
@@ -151,10 +142,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
   local endpoint=$1
   local cache_key="${endpoint}_$(date -u +"%Y-%m-%dT%H")"
   local cache_entry
-  
-  # Get current Warsaw hour (for API fetch restriction)
-  local warsaw_hour=$(TZ='Europe/Warsaw' date +%H | sed 's/^0//')
-  
+
   # Check if we have fresh cache first
   if is_cache_fresh "$endpoint"; then
     echo "Using fresh cache for $endpoint" >&2
@@ -172,25 +160,6 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     echo "Fresh cache found but data invalid, falling back to API" >&2
   fi
 
-  # Before 14:00 Warsaw time, prefer cache over API (next day prices not available yet)
-  if [[ $warsaw_hour -lt 14 ]]; then
-    echo "Before 14:00 Warsaw time ($warsaw_hour:xx) - preferring cache over API" >&2
-    # Try to use any available cache first
-    local latest_cache=$(grep "^${endpoint}_" "$CACHE_FILE" 2>/dev/null | tail -n1)
-    if [[ -n "$latest_cache" ]]; then
-      local cache_key_found=$(echo "$latest_cache" | cut -d'|' -f1)
-      local cache_data_encoded=$(echo "$latest_cache" | cut -d'|' -f2-)
-      local cache_data=$(echo "$cache_data_encoded" | base64 -d 2>/dev/null || echo "$cache_data_encoded")
-      
-      if echo "$cache_data" | jq -e '.frames' >/dev/null 2>&1; then
-        echo "Using cached data from $cache_key_found (before 14:00 Warsaw)" >&2
-        echo "$cache_data"
-        return
-      fi
-    fi
-    echo "No valid cache found before 14:00, will try API anyway" >&2
-  fi
-
   # Try API
   echo "API Request: $API_BASE/$endpoint/ with window_start=$START window_end=$STOP" >&2
   local response
@@ -202,7 +171,6 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
        --data-urlencode window_end="$STOP" \
        "$API_BASE/$endpoint/") || true
   echo "API Response for $endpoint (first 200 chars): $(echo "$response" | head -c 200)" >&2
-  echo $response > /tmp/pstryk_last_api_response.json
 
   # Debug: Check response validity
   echo "Response validation for $endpoint:" >&2
@@ -319,29 +287,6 @@ echo "SELL_JSON length: $(echo "$SELL_JSON" | wc -c)"
 echo "BUY_JSON has frames: $(echo "$BUY_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
 echo "SELL_JSON has frames: $(echo "$SELL_JSON" | jq -e 'has("frames")' 2>/dev/null || echo "false")"
 
-# Get current and next hour from API's is_live flag (most reliable method)
-# The API marks the current hour with is_live:true
-HOUR[current]=$(echo "$BUY_JSON" | jq -r '.frames[] | select(.is_live == true) | .start' 2>/dev/null || echo "")
-if [[ -z "${HOUR[current]}" ]]; then
-  echo "WARNING: No is_live frame found in API response, falling back to UTC calculation" >&2
-  HOUR[current]="$(TZ=UTC date +"%Y-%m-%dT%H:00:00+00:00")"
-fi
-
-# Calculate next hour from current hour
-CURRENT_HOUR_NUM=$(echo "${HOUR[current]}" | sed 's/.*T\([0-9][0-9]\):.*/\1/' | sed 's/^0//')
-NEXT_HOUR_NUM=$(( (CURRENT_HOUR_NUM + 1) % 24 ))
-NEXT_HOUR_PADDED=$(printf "%02d" $NEXT_HOUR_NUM)
-# Handle date change at midnight
-if [[ $NEXT_HOUR_NUM -eq 0 ]]; then
-  NEXT_DATE=$(TZ=UTC date -d "$(echo "${HOUR[current]}" | cut -dT -f1) + 1 day" +"%Y-%m-%d")
-else
-  NEXT_DATE=$(echo "${HOUR[current]}" | cut -dT -f1)
-fi
-HOUR[next]="${NEXT_DATE}T${NEXT_HOUR_PADDED}:00:00+00:00"
-
-echo "Current hour (from API is_live): ${HOUR[current]}"
-echo "Next hour (calculated): ${HOUR[next]}"
-
 # fill a 2‑D associative array
 declare -A A
 for row in current next; do
@@ -354,27 +299,12 @@ for row in current next; do
 done
 
 # Calculate current_index (price ranking for current hour: 0=cheapest, 23=most expensive)
-# For Warsaw (UTC+1 in winter, UTC+2 in summer), we need to filter for Warsaw local day
 echo "=== CALCULATING CURRENT INDEX ==="
-
-# Get Warsaw local day boundaries in UTC
-# Warsaw 00:00 = UTC 23:00 (previous day in winter) or UTC 22:00 (previous day in summer)
-# Warsaw 23:00 = UTC 22:00 (same day in winter) or UTC 21:00 (same day in summer)
-WARSAW_TODAY=$(TZ='Europe/Warsaw' date +%Y-%m-%d)
-WARSAW_DAY_START_UTC=$(TZ=UTC date -d "TZ=\"Europe/Warsaw\" $WARSAW_TODAY 00:00:00" +"%Y-%m-%dT%H:00:00+00:00")
-WARSAW_DAY_END_UTC=$(TZ=UTC date -d "TZ=\"Europe/Warsaw\" $WARSAW_TODAY 23:00:00" +"%Y-%m-%dT%H:00:00+00:00")
-
-echo "Warsaw today: $WARSAW_TODAY"
-echo "Warsaw day start in UTC: $WARSAW_DAY_START_UTC"
-echo "Warsaw day end in UTC: $WARSAW_DAY_END_UTC"
-
-current_index=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
-   --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
+   --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    # Get all frames for Warsaw local day (from day_start to day_end inclusive)
-    (.frames | map(select(
-      .start >= $day_start and .start <= $day_end
-    )) | sort_by(.price_gross)) as $sorted_frames |
+    # Get all frames for today, sorted by price_gross (ascending)
+    (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) as $sorted_frames |
     # Find the index of current hour in the sorted array
     ($sorted_frames | map(.start) | index($now)) as $index |
     if $index != null then
@@ -389,53 +319,6 @@ current_index=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
 
 echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
 A[current,index]=$current_index
-
-# Debug current_index calculation
-echo "=== DEBUGGING CURRENT INDEX CALCULATION ===" >&2
-echo "Current timestamp (UTC): ${HOUR[current]}" >&2
-echo "Warsaw today: $WARSAW_TODAY" >&2
-echo "Warsaw day start (UTC): $WARSAW_DAY_START_UTC" >&2
-echo "Warsaw day end (UTC): $WARSAW_DAY_END_UTC" >&2
-
-# Show all timestamps for Warsaw local day
-echo "All timestamps for Warsaw local day:" >&2
-echo "Current timestamp (local): $(TZ='Europe/Warsaw' date)"
-echo "Current timestamp (UTC): $(TZ=UTC date)"
-echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  .frames | map(select(
-    .start >= $day_start and .start <= $day_end
-  )) | .[].start
-' >&2
-
-# Show sorted prices with timestamps for Warsaw local day (showing Warsaw time)
-echo "Sorted prices for Warsaw local day (index: UTC -> Warsaw local -> price):" >&2
-
-# Calculate current Warsaw offset from UTC (handles both CET +1 and CEST +2)
-WARSAW_OFFSET=$(( ($(TZ='Europe/Warsaw' date +%H) - $(TZ=UTC date +%H) + 24) % 24 ))
-echo "Current Warsaw offset from UTC: +$WARSAW_OFFSET hours" >&2
-
-echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" --argjson offset "$WARSAW_OFFSET" '
-  (.frames | map(select(
-    .start >= $day_start and .start <= $day_end
-  )) | sort_by(.price_gross)) |
-  to_entries | .[] | 
-  # Extract hour from UTC timestamp and add offset for Warsaw time
-  (.value.start | split("T")[1] | split(":")[0] | tonumber) as $utc_hour |
-  (($utc_hour + $offset) % 24) as $warsaw_hour |
-  # Format with leading zeros
-  (if .key < 10 then "0" + (.key | tostring) else (.key | tostring) end) as $idx |
-  (if $warsaw_hour < 10 then "0" + ($warsaw_hour | tostring) else ($warsaw_hour | tostring) end) as $wh |
-  "\($idx): \(.value.start) (Warsaw: \($wh):00) -> \(.value.price_gross)"
-' >&2
-
-# Check if current hour exists in Warsaw local day data
-current_hour_exists=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
-  --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  (.frames | map(select(
-    .start >= $day_start and .start <= $day_end
-  )) | map(.start) | index($now)) // "not_found"
-')
-echo "Current hour exists in Warsaw local day data: $current_hour_exists" >&2
 
 # push values to Home‑Assistant
 for row in current next; do
@@ -456,43 +339,31 @@ ha_post "sensor.pstryk_current_index" \
 
 # Debug the cheapest calculation
 echo "=== DEBUGGING CHEAPEST CALCULATION ==="
-echo "Current time (UTC): ${HOUR[current]}"
-echo "Warsaw day: $WARSAW_TODAY"
+echo "Current time: $(date -u +%Y-%m-%dT%H:00:00+00:00)"
+echo "Today date: $(date -u +%Y-%m-%d)"
 
 # Test the individual parts
-min_price=$(echo $BUY_JSON | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  .frames | map(select(
-    .start >= $day_start and .start <= $day_end
-  )) | min_by(.price_gross).price_gross
+min_price=$(echo $BUY_JSON | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  .frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross
 ')
-echo "Minimum price today (Warsaw): $min_price"
+echo "Minimum price today: $min_price"
 
-current_price=$(echo $BUY_JSON | jq -r --arg now "${HOUR[current]}" '
+current_price=$(echo $BUY_JSON | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" '
   .frames[] | select(.start==$now).price_gross
 ')
 echo "Current hour price: $current_price"
 
-# Show frames for Warsaw local day
-echo "Frames for Warsaw local day sorted by price_gross:"
-echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" --argjson offset "$WARSAW_OFFSET" '
-  [.frames[] | select(
-    .start >= $day_start and .start <= $day_end
-  )] | sort_by(.price_gross) | to_entries | .[] |
-  # Extract hour from UTC timestamp and add offset for Warsaw time
-  (.value.start | split("T")[1] | split(":")[0] | tonumber) as $utc_hour |
-  (($utc_hour + $offset) % 24) as $warsaw_hour |
-  (if .key < 10 then "0" + (.key | tostring) else (.key | tostring) end) as $idx |
-  (if $warsaw_hour < 10 then "0" + ($warsaw_hour | tostring) else ($warsaw_hour | tostring) end) as $wh |
-  "\($idx): \(.value.start) (Warsaw: \($wh):00) -> \(.value.price_gross)"
+# Show frames for today
+echo "Frames for today sorted by price_gross:"
+echo "$BUY_JSON" | jq -r --arg today "$(date -u +%Y-%m-%d)" '
+  [.frames[] | select(.start | startswith($today))] | sort_by(.price_gross) | .[] | .start + " -> " + (.price_gross | tostring)
 ' | head -24
 
 # Simplified version to avoid parsing errors
-current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
-   --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
+   --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    (.frames | map(select(
-      .start >= $day_start and .start <= $day_end
-    )) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $current_price |
     if $current_price and $min_price then
       if $current_price == $min_price then "true" else "false" end
@@ -505,20 +376,18 @@ current_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" 
 ')
 
 echo "Current cheapest calculation result: '$current_cheapest_result'"
-echo "Current time (UTC): ${HOUR[current]}"
-echo "Today date (UTC): $(TZ=UTC date +%Y-%m-%d)"
+echo "Current time: $(date -u +%Y-%m-%dT%H:00:00+00:00)"
+echo "Today date: $(date -u +%Y-%m-%d)"
 
 ha_post "sensor.pstryk_current_cheapest" \
   "{\"state\":\"$current_cheapest_result\"}"
 
 # Debug the next cheapest calculation
 # Simplified version to avoid parsing errors
-next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[next]}" \
-   --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)" \
+   --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    (.frames | map(select(
-      .start >= $day_start and .start <= $day_end
-    )) | min_by(.price_gross).price_gross) as $min_price |
+    (.frames | map(select(.start | startswith($today))) | min_by(.price_gross).price_gross) as $min_price |
     (.frames[] | select(.start == $now) | .price_gross) as $next_price |
     if $next_price and $min_price then
       if $next_price == $min_price then "true" else "false" end
@@ -531,7 +400,7 @@ next_cheapest_result=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[next]}" \
 ')
 
 echo "Next cheapest calculation result: '$next_cheapest_result'"
-echo "Next time (UTC): ${HOUR[next]}"
+echo "Next time: $(date -u -d '+1 hour' +%Y-%m-%dT%H:00:00+00:00)"
 
 ha_post "sensor.pstryk_next_cheapest" \
   "{\"state\":\"$next_cheapest_result\"}"
