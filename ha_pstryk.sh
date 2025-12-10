@@ -171,6 +171,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
        --data-urlencode window_end="$STOP" \
        "$API_BASE/$endpoint/") || true
   echo "API Response for $endpoint (first 200 chars): $(echo "$response" | head -c 200)" >&2
+  echo $response > /tmp/pstryk_last_api_response.json
 
   # Debug: Check response validity
   echo "Response validation for $endpoint:" >&2
@@ -300,24 +301,44 @@ done
 
 # Calculate current_index (price ranking for current hour: 0=cheapest, 23=most expensive)
 echo "=== CALCULATING CURRENT INDEX ==="
-current_index=$(echo "$BUY_JSON" | jq -r --arg now "$(date -u +%Y-%m-%dT%H:00:00+00:00)" \
-   --arg today "$(date -u +%Y-%m-%d)" '
+
+# Calculate Warsaw offset for displaying local time (force base 10 to avoid octal issues)
+WARSAW_OFFSET=$(( (10#$(TZ='Europe/Warsaw' date +%H) - 10#$(TZ=UTC date +%H) + 24) % 24 ))
+
+current_index=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
+  --arg today "$(date -u +%Y-%m-%d)" '
   if (.frames | length) > 0 then
-    # Get all frames for today, sorted by price_gross (ascending)
-    (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) as $sorted_frames |
-    # Find the index of current hour in the sorted array
-    ($sorted_frames | map(.start) | index($now)) as $index |
-    if $index != null then
-      $index
-    else
-      "unknown"
-    end
+   # Get all frames for today, sorted by price_gross (ascending)
+   (.frames | map(select(.start | startswith($today))) | sort_by(.price_gross)) as $sorted_frames |
+   # Find the index of current hour in the sorted array
+   ($sorted_frames | map(.start) | index($now)) as $index |
+   if $index != null then
+    $index
+   else
+    "unknown"
+   end
   else
-    "no_frames"
+   "no_frames"
   end
 ')
 
-echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
+# Debug output with leading zeros, UTC time, and Warsaw local time
+if [[ "$current_index" != "unknown" && "$current_index" != "no_frames" ]]; then
+  # Format index with leading zero if < 10
+  FORMATTED_INDEX=$(printf "%02d" "$current_index")
+  
+  # Extract UTC hour from current timestamp (remove leading zeros for arithmetic)
+  UTC_HOUR=$(echo "${HOUR[current]}" | grep -oP '\d{2}(?=:00:00)')
+  
+  # Calculate Warsaw hour (force base 10 to avoid octal interpretation of 08, 09)
+  WARSAW_HOUR=$(( (10#$UTC_HOUR + WARSAW_OFFSET) % 24 ))
+  WARSAW_HOUR_FORMATTED=$(printf "%02d" "$WARSAW_HOUR")
+  
+  echo "Current Index: $FORMATTED_INDEX | UTC: ${HOUR[current]} (${WARSAW_HOUR_FORMATTED}:00 Warsaw) | Rank: 0=cheapest, 23=most expensive"
+else
+  echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
+fi
+
 A[current,index]=$current_index
 
 # push values to Home‑Assistant
