@@ -87,6 +87,33 @@
 set -euo pipefail               # stop on errors, unset vars, or failed pipelines
 sleep 5                      # wait a bit to avoid bad timestamps from too-early execution
 
+# ── AUTO-UPDATE ──────────────────────────────────────────────────────────────────
+_autoupdate() {
+  local script_path update_url tmp_file current_md5 remote_md5
+  script_path="$(readlink -f "$0")"
+  update_url="https://raw.githubusercontent.com/enclude/pstryk-ha-integration/main/ha_pstryk.sh"
+  echo "Checking for script updates from GitHub..."
+  tmp_file=$(mktemp) || return 0
+  if curl -sf --max-time 15 -o "$tmp_file" "$update_url" 2>/dev/null; then
+    current_md5=$(md5sum "$script_path" | cut -d' ' -f1)
+    remote_md5=$(md5sum "$tmp_file" | cut -d' ' -f1)
+    if [[ "$current_md5" != "$remote_md5" ]]; then
+      echo "Update available! Applying and restarting..."
+      cp "$tmp_file" "$script_path"
+      chmod +x "$script_path"
+      rm -f "$tmp_file"
+      exec "$script_path" "$@"
+    else
+      echo "Script is up to date."
+    fi
+  else
+    echo "Could not check for updates (network error), continuing..." >&2
+  fi
+  rm -f "$tmp_file"
+}
+_autoupdate "$@"
+# ────────────────────────────────────────────────────────────────────────────────
+
 # ── CONFIG ──────────────────────────────────────────────────────────────────────
 API_TOKEN=$1
 HA_IP=$2
