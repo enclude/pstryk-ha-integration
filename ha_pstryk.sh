@@ -90,6 +90,13 @@ sleep 5                      # wait a bit to avoid bad timestamps from too-early
 # ── AUTO-UPDATE ──────────────────────────────────────────────────────────────────
 _autoupdate() {
   local script_path update_url tmp_file current_md5 remote_md5
+  # Skip auto-update if --no-update flag is present
+  for arg in "$@"; do
+    if [[ "$arg" == "--no-update" ]]; then
+      echo "Auto-update skipped (--no-update flag)" >&2
+      return 0
+    fi
+  done
   script_path="$(readlink -f "$0")"
   update_url="https://raw.githubusercontent.com/enclude/pstryk-ha-integration/main/ha_pstryk.sh"
   echo "Checking for script updates from GitHub..."
