@@ -281,6 +281,31 @@ jq_field() {      # jq_field <json> <timestamp> <field>
 
 ha_post() {       # ha_post <entity_id> <json_body>
   echo "Posting to HA: $1 -> $2"
+  
+  # Create log directory if it doesn't exist
+  local log_dir="/tmp/ha_pstryk"
+  mkdir -p "$log_dir"
+  
+  # Create log file with current date and hour (YYYY-MM-DD_HH format - no spaces)
+  local log_datetime=$(date +"%Y-%m-%d_%H%M")
+  local log_file="$log_dir/$log_datetime.json"
+  
+  # Create JSON log entry
+  local log_entry=$(jq -n \
+    --arg timestamp "$(date '+%Y-%m-%d %H:%M:%S')" \
+    --arg entity "$1" \
+    --argjson data "$2" \
+    '{timestamp: $timestamp, entity: $entity, data: $data}')
+  
+  # Append to JSON array in log file
+  if [[ -f "$log_file" ]]; then
+    # File exists, append to array
+    jq --argjson entry "$log_entry" '. += [$entry]' "$log_file" > "${log_file}.tmp" && mv "${log_file}.tmp" "$log_file"
+  else
+    # New file, create array with first entry
+    echo "[$log_entry]" > "$log_file"
+  fi
+  
   local response=$(curl -s -X POST \
        -H "Authorization: Bearer $HA_TOKEN" \
        -H "Content-Type: application/json" \
