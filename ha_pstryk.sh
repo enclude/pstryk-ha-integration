@@ -101,11 +101,14 @@ echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
 
 API_BASE="https://api.pstryk.pl/integrations"
+# TODO: Migrate /pricing/ and /prosumer-pricing/ to /meter-data/unified-metrics/?metrics=pricing
+#       before April 1, 2026 when legacy endpoints are decommissioned.
+#       The new endpoint returns frames[].metrics.pricing.{field} instead of frames[].{field}.
 # Request data from yesterday 22:00 UTC to cover Warsaw 00:00 in both CET and CEST
 # CET (winter): Warsaw 00:00 = yesterday 23:00 UTC
 # CEST (summer): Warsaw 00:00 = yesterday 22:00 UTC
 START=$(date -u -d 'yesterday 22:00' +"%Y-%m-%dT%H:00:00+00:00")
-STOP=$(date -u +"%Y-%m-%dT23:59:59+00:00")
+STOP=$(date -u -d 'tomorrow 23:59:59' +"%Y-%m-%dT%H:%M:%S+00:00")
 
 echo $START
 echo $STOP
@@ -183,7 +186,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
        --data-urlencode window_end="$STOP" \
        "$API_BASE/$endpoint/") || true
   echo "API Response for $endpoint (first 200 chars): $(echo "$response" | head -c 200)" >&2
-  echo $response > /tmp/pstryk_last_api_response.json
+  echo "$response" > /tmp/pstryk_last_api_response.json
 
   # Debug: Check response validity
   echo "Response validation for $endpoint:" >&2
@@ -198,22 +201,22 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
 
     # Remove old entries for this key and add new one
     if [[ -f "$CACHE_FILE" ]]; then
-      grep -v "^$cache_key|" "$CACHE_FILE" 2>/dev/null > tmp_cache.txt || true
+      grep -v "^$cache_key|" "$CACHE_FILE" 2>/dev/null > /var/tmp/tmp_cache_$$.txt || true
     else
-      touch tmp_cache.txt
+      touch /var/tmp/tmp_cache_$$.txt
     fi
-    echo "$cache_key|$cache_data_encoded" >> tmp_cache.txt
-    mv tmp_cache.txt "$CACHE_FILE"
+    echo "$cache_key|$cache_data_encoded" >> /var/tmp/tmp_cache_$$.txt
+    mv /var/tmp/tmp_cache_$$.txt "$CACHE_FILE"
 
     # Save timestamp
     local current_timestamp=$(date +%s)
     if [[ -f "$CACHE_TIMESTAMP_FILE" ]]; then
-      grep -v "^$cache_key|" "$CACHE_TIMESTAMP_FILE" 2>/dev/null > tmp_timestamps.txt || true
+      grep -v "^$cache_key|" "$CACHE_TIMESTAMP_FILE" 2>/dev/null > /var/tmp/tmp_timestamps_$$.txt || true
     else
-      touch tmp_timestamps.txt
+      touch /var/tmp/tmp_timestamps_$$.txt
     fi
-    echo "$cache_key|$current_timestamp" >> tmp_timestamps.txt
-    mv tmp_timestamps.txt "$CACHE_TIMESTAMP_FILE"
+    echo "$cache_key|$current_timestamp" >> /var/tmp/tmp_timestamps_$$.txt
+    mv /var/tmp/tmp_timestamps_$$.txt "$CACHE_TIMESTAMP_FILE"
 
     echo "Cached data and timestamp for $cache_key" >&2
     echo "$response"
@@ -229,8 +232,8 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
       # Clean up broken cache entries (those that are just "{" or incomplete)
       if grep -q "^${endpoint}_.*|{$" "$CACHE_FILE" 2>/dev/null; then
         echo "Found broken cache entries, cleaning up..." >&2
-        grep -v "^${endpoint}_.*|{$" "$CACHE_FILE" 2>/dev/null > tmp_clean_cache.txt || touch tmp_clean_cache.txt
-        mv tmp_clean_cache.txt "$CACHE_FILE"
+        grep -v "^${endpoint}_.*|{$" "$CACHE_FILE" 2>/dev/null > /var/tmp/tmp_clean_cache_$$.txt || touch /var/tmp/tmp_clean_cache_$$.txt
+        mv /var/tmp/tmp_clean_cache_$$.txt "$CACHE_FILE"
       fi
 
       echo "Cache entries for $endpoint:" >&2
@@ -273,7 +276,9 @@ jq_field() {      # jq_field <json> <timestamp> <field>
 
   # Check if JSON has frames before trying to access them
   if echo "$json" | jq -e 'has("frames")' >/dev/null 2>&1; then
-    jq -r --arg t "$timestamp" ".frames[] | select(.start==\$t) | .$field" <<<"$json"
+    local result
+    result=$(jq -r --arg t "$timestamp" ".frames[] | select(.start==\$t) | .$field" <<<"$json")
+    echo "${result:-null}"
   else
     echo "null"
   fi
@@ -358,7 +363,7 @@ declare -A A
 for row in current next; do
   ts=${HOUR[$row]}
 
-  A[$row,buy]=$( jq_field "$BUY_JSON"  "$ts" price_gross )
+  A[$row,buy]=$( jq_field "$BUY_JSON"  "$ts" full_price )
   A[$row,sell]=$( jq_field "$SELL_JSON" "$ts" price_gross )
   A[$row,is_cheap]=$( jq_field "$BUY_JSON"  "$ts" is_cheap )
   A[$row,is_expensive]=$( jq_field "$BUY_JSON"  "$ts" is_expensive )
@@ -374,6 +379,10 @@ echo "=== CALCULATING CURRENT INDEX ==="
 WARSAW_TODAY=$(TZ='Europe/Warsaw' date +%Y-%m-%d)
 WARSAW_DAY_START_UTC=$(TZ=UTC date -d "TZ=\"Europe/Warsaw\" $WARSAW_TODAY 00:00:00" +"%Y-%m-%dT%H:00:00+00:00")
 WARSAW_DAY_END_UTC=$(TZ=UTC date -d "TZ=\"Europe/Warsaw\" $WARSAW_TODAY 23:00:00" +"%Y-%m-%dT%H:00:00+00:00")
+
+WARSAW_TOMORROW=$(TZ='Europe/Warsaw' date -d 'tomorrow' +%Y-%m-%d)
+WARSAW_TOMORROW_START_UTC=$(TZ=UTC date -d "TZ=\"Europe/Warsaw\" $WARSAW_TOMORROW 00:00:00" +"%Y-%m-%dT%H:00:00+00:00")
+WARSAW_TOMORROW_END_UTC=$(TZ=UTC date -d "TZ=\"Europe/Warsaw\" $WARSAW_TOMORROW 23:00:00" +"%Y-%m-%dT%H:00:00+00:00")
 
 echo "Warsaw today: $WARSAW_TODAY"
 echo "Warsaw day start in UTC: $WARSAW_DAY_START_UTC"
@@ -400,6 +409,20 @@ current_index=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
 
 echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
 A[current,index]=$current_index
+
+# Calculate price_relative = current full_price / today's average full_price
+# Values > 1.0 mean current hour is more expensive than today's average
+today_avg_full=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null and . > 0)] |
+  if length > 0 then (add / length) else null end
+')
+if [[ -n "${A[current,buy]}" && "${A[current,buy]}" != "null" && -n "$today_avg_full" && "$today_avg_full" != "null" ]]; then
+  price_relative=$(echo "$today_avg_full ${A[current,buy]}" | awk '{if ($1 > 0) printf "%.2f", $2/$1; else print "null"}')
+else
+  price_relative="null"
+fi
+echo "Today avg full price: $today_avg_full"
+echo "Price relative (current/avg): $price_relative"
 
 # Debug current_index calculation
 echo "=== DEBUGGING CURRENT INDEX CALCULATION ===" >&2
@@ -466,20 +489,24 @@ done
 ha_post "sensor.pstryk_current_index" \
         "{\"state\":\"${A[current,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Current Hour Price Index\",\"description\":\"Price ranking for current hour (0=cheapest, 23=most expensive)\"}}"
 
+# Send price_relative to Home Assistant
+ha_post "sensor.pstryk_price_relative" \
+        "{\"state\":\"$price_relative\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Price Relative\",\"description\":\"Current full price divided by today average full price. >1.0 = expensive now, <1.0 = cheap now\"}}"
+
 # Debug the cheapest calculation
 echo "=== DEBUGGING CHEAPEST CALCULATION ==="
 echo "Current time (UTC): ${HOUR[current]}"
 echo "Warsaw day: $WARSAW_TODAY"
 
 # Test the individual parts
-min_price=$(echo $BUY_JSON | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+min_price=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
   .frames | map(select(
     .start >= $day_start and .start <= $day_end
   )) | min_by(.price_gross).price_gross
 ')
 echo "Minimum price today (Warsaw): $min_price"
 
-current_price=$(echo $BUY_JSON | jq -r --arg now "${HOUR[current]}" '
+current_price=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" '
   .frames[] | select(.start==$now).price_gross
 ')
 echo "Current hour price: $current_price"
@@ -547,3 +574,41 @@ echo "Next time (UTC): ${HOUR[next]}"
 
 ha_post "sensor.pstryk_next_cheapest" \
   "{\"state\":\"$next_cheapest_result\"}"
+
+# Tomorrow cheapest hour
+tomorrow_cheapest_utc=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_TOMORROW_START_UTC" --arg day_end "$WARSAW_TOMORROW_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end and .full_price != null and .full_price > 0)] |
+  if length > 0 then min_by(.full_price).start else "unknown" end
+')
+echo "Tomorrow cheapest hour (UTC): $tomorrow_cheapest_utc"
+
+if [[ -n "$tomorrow_cheapest_utc" && "$tomorrow_cheapest_utc" != "unknown" && "$tomorrow_cheapest_utc" != "null" ]]; then
+  tomorrow_cheapest_warsaw=$(TZ='Europe/Warsaw' date -d "$tomorrow_cheapest_utc" +"%H:%M")
+  tomorrow_cheapest_date=$(TZ='Europe/Warsaw' date -d "$tomorrow_cheapest_utc" +"%Y-%m-%d")
+  tomorrow_cheapest_price=$(echo "$BUY_JSON" | jq -r --arg ts "$tomorrow_cheapest_utc" '.frames[] | select(.start == $ts) | .full_price')
+else
+  tomorrow_cheapest_warsaw="unknown"
+  tomorrow_cheapest_date="unknown"
+  tomorrow_cheapest_price="null"
+fi
+echo "Tomorrow cheapest hour (Warsaw): $tomorrow_cheapest_warsaw on $tomorrow_cheapest_date, price: $tomorrow_cheapest_price"
+
+ha_post "sensor.pstryk_tomorrow_cheapest_hour" \
+  "{\"state\":\"$tomorrow_cheapest_warsaw\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Tomorrow Cheapest Hour\",\"date\":\"$tomorrow_cheapest_date\",\"price\":${tomorrow_cheapest_price:-null},\"description\":\"Cheapest hour tomorrow (Warsaw local time HH:MM)\"}}"
+
+# Next cheap hour (first upcoming hour with is_cheap=true)
+next_cheap_utc=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" '
+  [.frames[] | select(.is_cheap == true and .start > $now)] |
+  if length > 0 then (sort_by(.start) | first | .start) else "none" end
+')
+echo "Next cheap hour (UTC): $next_cheap_utc"
+
+if [[ -n "$next_cheap_utc" && "$next_cheap_utc" != "none" && "$next_cheap_utc" != "null" ]]; then
+  next_cheap_warsaw=$(TZ='Europe/Warsaw' date -d "$next_cheap_utc" +"%Y-%m-%d %H:%M")
+else
+  next_cheap_warsaw="none"
+fi
+echo "Next cheap hour (Warsaw): $next_cheap_warsaw"
+
+ha_post "sensor.pstryk_next_cheap_hour" \
+  "{\"state\":\"$next_cheap_warsaw\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Next Cheap Hour\",\"description\":\"Next upcoming hour with is_cheap=true (Warsaw time: YYYY-MM-DD HH:MM)\"}}"
