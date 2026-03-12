@@ -153,6 +153,37 @@ echo "UTC time: $(TZ=UTC date +"%Y-%m-%d %H:%M:%S %Z")"
 
 # ── CACHE FUNCTIONS ─────────────────────────────────────────────────────────────
 # --- helpers -------------------------------------------------------------------
+cleanup_old_cache() {  # remove cache entries older than 7 days
+  local cutoff_timestamp=$(date -d '7 days ago' +%s)
+  local removed=0
+
+  if [[ -f "$CACHE_TIMESTAMP_FILE" ]]; then
+    local tmp_ts=/var/tmp/tmp_timestamps_cleanup_$$.txt
+    touch "$tmp_ts"
+    while IFS='|' read -r key ts; do
+      if [[ -n "$ts" && "$ts" -ge "$cutoff_timestamp" ]]; then
+        echo "$key|$ts" >> "$tmp_ts"
+      else
+        removed=$((removed + 1))
+      fi
+    done < "$CACHE_TIMESTAMP_FILE"
+    mv "$tmp_ts" "$CACHE_TIMESTAMP_FILE"
+    echo "Cache cleanup: removed $removed old timestamp entries (older than 7 days)" >&2
+  fi
+
+  if [[ -f "$CACHE_FILE" && -f "$CACHE_TIMESTAMP_FILE" ]]; then
+    local tmp_cache=/var/tmp/tmp_cache_cleanup_$$.txt
+    touch "$tmp_cache"
+    while IFS='|' read -r key encoded; do
+      if grep -q "^$key|" "$CACHE_TIMESTAMP_FILE" 2>/dev/null; then
+        echo "$key|$encoded" >> "$tmp_cache"
+      fi
+    done < "$CACHE_FILE"
+    mv "$tmp_cache" "$CACHE_FILE"
+    echo "Cache cleanup: data file pruned to match remaining timestamps" >&2
+  fi
+}
+
 is_cache_fresh() {    # check if cache is less than 55 minutes old
   local endpoint=$1
   local cache_key="${endpoint}_$(date -u +"%Y-%m-%dT%H")"
@@ -346,6 +377,8 @@ ha_post() {       # ha_post <entity_id> <json_body>
   echo "HA Response: $response"
 }
 # --------------------------------------------------------------------------------
+
+cleanup_old_cache
 
 # download once, reuse many times
 BUY_JSON=$( get_json pricing )
