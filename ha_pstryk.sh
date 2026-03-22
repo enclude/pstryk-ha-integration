@@ -768,15 +768,15 @@ ha_post "sensor.pstryk_today_avg_buy" \
 
 # ── TODAY MIN / MAX / AVG SELL ───────────────────────────────────────────────
 today_min_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null and . > 0)] |
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null)] |
   if length > 0 then min else null end
 ')
 today_max_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null and . > 0)] |
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null)] |
   if length > 0 then max else null end
 ')
 today_avg_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null and . > 0)] |
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null)] |
   if length > 0 then (add / length) else null end
 ')
 echo "Today min sell: $today_min_sell, max sell: $today_max_sell, avg sell: $today_avg_sell"
