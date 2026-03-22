@@ -31,7 +31,7 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
    - Obsługuje zarówno argumenty skryptu jak i zmienne środowiskowe
 
 5. **Integracja z Home Assistant:**
-   - Aktualizuje 25 sensorów na uruchomienie
+   - Aktualizuje 28 sensorów na uruchomienie
    - Ceny i rankingi dla godzin +2 i +3
    - Statystyki cenowe dnia (min/max/avg)
    - Liczba i bloki tanich godzin
@@ -72,6 +72,9 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
 - `sensor.pstryk_today_min_buy` - Najniższa cena zakupu dziś (PLN/kWh)
 - `sensor.pstryk_today_max_buy` - Najwyższa cena zakupu dziś (PLN/kWh)
 - `sensor.pstryk_today_avg_buy` - Średnia cena zakupu dziś (PLN/kWh)
+- `sensor.pstryk_today_min_sell` - Najniższa cena sprzedaży dziś (PLN/kWh)
+- `sensor.pstryk_today_max_sell` - Najwyższa cena sprzedaży dziś (PLN/kWh)
+- `sensor.pstryk_today_avg_sell` - Średnia cena sprzedaży dziś (PLN/kWh)
 
 **Tanie godziny i bloki:**
 - `sensor.pstryk_cheap_hours_remaining` - Liczba tanich godzin pozostałych dziś po bieżącej godzinie (h)

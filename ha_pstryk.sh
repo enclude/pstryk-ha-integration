@@ -405,9 +405,13 @@ echo "Total frames in BUY_JSON: $(echo "$BUY_JSON" | jq '.frames | length')"
 # Get current and next hour from API's is_live flag (most reliable method)
 # The API marks the current hour with is_live:true
 HOUR[current]=$(echo "$BUY_JSON" | jq -r '.frames[] | select(.is_live == true) | .start' 2>/dev/null || echo "")
+ACTUAL_UTC_HOUR="$(TZ=UTC date +"%Y-%m-%dT%H:00:00+00:00")"
 if [[ -z "${HOUR[current]}" ]]; then
   echo "WARNING: No is_live frame found in API response, falling back to UTC calculation" >&2
-  HOUR[current]="$(TZ=UTC date +"%Y-%m-%dT%H:00:00+00:00")"
+  HOUR[current]="$ACTUAL_UTC_HOUR"
+elif [[ "${HOUR[current]}" != "$ACTUAL_UTC_HOUR" ]]; then
+  echo "WARNING: is_live frame (${HOUR[current]}) from stale cache doesn't match actual UTC hour ($ACTUAL_UTC_HOUR), using UTC calculation" >&2
+  HOUR[current]="$ACTUAL_UTC_HOUR"
 fi
 
 # Calculate next hour from current hour
@@ -761,6 +765,28 @@ ha_post "sensor.pstryk_today_max_buy" \
   "{\"state\":\"$today_max_buy\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Buy Price\"}}"
 ha_post "sensor.pstryk_today_avg_buy" \
   "{\"state\":\"$today_avg_full\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Buy Price\"}}"
+
+# ── TODAY MIN / MAX / AVG SELL ───────────────────────────────────────────────
+today_min_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null and . > 0)] |
+  if length > 0 then min else null end
+')
+today_max_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null and . > 0)] |
+  if length > 0 then max else null end
+')
+today_avg_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .price_gross | select(. != null and . > 0)] |
+  if length > 0 then (add / length) else null end
+')
+echo "Today min sell: $today_min_sell, max sell: $today_max_sell, avg sell: $today_avg_sell"
+
+ha_post "sensor.pstryk_today_min_sell" \
+  "{\"state\":\"$today_min_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Min Sell Price\"}}"
+ha_post "sensor.pstryk_today_max_sell" \
+  "{\"state\":\"$today_max_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Sell Price\"}}"
+ha_post "sensor.pstryk_today_avg_sell" \
+  "{\"state\":\"$today_avg_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Sell Price\"}}"
 
 # ── CHEAP HOURS COUNT ────────────────────────────────────────────────────────
 cheap_hours_remaining=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \

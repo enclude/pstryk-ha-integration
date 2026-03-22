@@ -37,7 +37,7 @@ docker run --rm \
 
 **Current hour detection** — Primary method: find the frame with `is_live == true` in the API response. Fallback: calculate from current UTC time.
 
-**Home Assistant sensors updated per run (25 total):**
+**Home Assistant sensors updated per run (28 total):**
 - `sensor.pstryk_script_current_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_script_next_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_current_cheapest` / `sensor.pstryk_next_cheapest`
@@ -49,6 +49,7 @@ docker run --rm \
 - `sensor.pstryk_hour_next2_buy` / `sensor.pstryk_hour_next2_index` — hour +2
 - `sensor.pstryk_hour_next3_buy` / `sensor.pstryk_hour_next3_index` — hour +3
 - `sensor.pstryk_today_min_buy` / `sensor.pstryk_today_max_buy` / `sensor.pstryk_today_avg_buy`
+- `sensor.pstryk_today_min_sell` / `sensor.pstryk_today_max_sell` / `sensor.pstryk_today_avg_sell` — sell price stats (use `price_gross` from SELL_JSON)
 - `sensor.pstryk_cheap_hours_remaining` / `sensor.pstryk_cheap_hours_today_total`
 - `sensor.pstryk_next_cheap_block_hours` — consecutive cheap hours from next cheap hour
 
