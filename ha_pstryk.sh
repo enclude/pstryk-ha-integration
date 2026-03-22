@@ -477,6 +477,28 @@ current_index=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
 echo "Current hour index (0=cheapest, 23=most expensive): '$current_index'"
 A[current,index]=$current_index
 
+# Calculate current_index_sell (sell price ranking for current hour: 0=cheapest sell, 23=most expensive sell)
+current_index_sell=$(echo "$SELL_JSON" | jq -r --arg now "${HOUR[current]}" \
+   --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  (.frames | map(select(
+    .start >= $day_start and .start <= $day_end
+  ))) as $day_frames |
+  if ($day_frames | length) > 0 then
+    ($day_frames | map(select(.start == $now)) | if length > 0 then .[0].price_gross else null end) as $current_price |
+    if $current_price != null then
+      # Dense rank: count distinct sell price levels strictly cheaper than current hour
+      ($day_frames | map(.price_gross) | unique | map(select(. < $current_price)) | length)
+    else
+      "unknown"
+    end
+  else
+    "no_frames"
+  end
+')
+
+echo "Current hour sell index (0=cheapest sell, 23=most expensive sell): '$current_index_sell'"
+A[current,index_sell]=$current_index_sell
+
 # Calculate price_relative = current full_price / today's average full_price
 # Values > 1.0 mean current hour is more expensive than today's average
 today_avg_full=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
@@ -555,6 +577,10 @@ done
 # Send current_index to Home Assistant
 ha_post "sensor.pstryk_current_index" \
         "{\"state\":\"${A[current,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Current Hour Price Index\",\"description\":\"Dense price rank for current hour (0=cheapest tier). Hours with identical prices share the same rank, so values increment without gaps.\"}}"
+
+# Send current_index_sell to Home Assistant
+ha_post "sensor.pstryk_current_index_sell" \
+        "{\"state\":\"${A[current,index_sell]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Current Hour Sell Price Index\",\"description\":\"Dense sell price rank for current hour (0=cheapest sell tier, 23=most expensive). Hours with identical prices share the same rank.\"}}"
 
 # Send price_relative to Home Assistant
 ha_post "sensor.pstryk_price_relative" \
