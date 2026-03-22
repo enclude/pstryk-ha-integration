@@ -705,3 +705,108 @@ echo "Next cheap hour (Warsaw): $next_cheap_warsaw"
 
 ha_post "sensor.pstryk_next_cheap_hour" \
   "{\"state\":\"$next_cheap_warsaw\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Next Cheap Hour\",\"description\":\"Next upcoming hour with is_cheap=true (Warsaw time: YYYY-MM-DD HH:MM)\"}}"
+
+# ── HOUR +2 AND +3 ───────────────────────────────────────────────────────────
+HOUR[next2]=$(TZ=UTC date -d "${HOUR[current]} + 2 hours" +"%Y-%m-%dT%H:00:00+00:00")
+HOUR[next3]=$(TZ=UTC date -d "${HOUR[current]} + 3 hours" +"%Y-%m-%dT%H:00:00+00:00")
+echo "Hour +2 (UTC): ${HOUR[next2]}"
+echo "Hour +3 (UTC): ${HOUR[next3]}"
+
+A[next2,buy]=$(jq_field "$BUY_JSON" "${HOUR[next2]}" full_price)
+A[next3,buy]=$(jq_field "$BUY_JSON" "${HOUR[next3]}" full_price)
+
+for slot in next2 next3; do
+  A[$slot,index]=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[$slot]}" \
+     --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+    (.frames | map(select(
+      .start >= $day_start and .start <= $day_end
+    ))) as $day_frames |
+    if ($day_frames | length) > 0 then
+      ($day_frames | map(select(.start == $now)) | if length > 0 then .[0].price_gross else null end) as $price |
+      if $price != null then
+        ($day_frames | map(.price_gross) | unique | map(select(. < $price)) | length)
+      else
+        "unknown"
+      end
+    else
+      "no_frames"
+    end
+  ')
+  echo "Hour $slot index: ${A[$slot,index]}"
+done
+
+ha_post "sensor.pstryk_hour_next2_buy" \
+  "{\"state\":\"${A[next2,buy]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Hour +2 Buy Price\"}}"
+ha_post "sensor.pstryk_hour_next3_buy" \
+  "{\"state\":\"${A[next3,buy]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Hour +3 Buy Price\"}}"
+ha_post "sensor.pstryk_hour_next2_index" \
+  "{\"state\":\"${A[next2,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Hour +2 Price Index\",\"description\":\"Dense price rank for hour +2 (0=cheapest, 23=most expensive)\"}}"
+ha_post "sensor.pstryk_hour_next3_index" \
+  "{\"state\":\"${A[next3,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Hour +3 Price Index\",\"description\":\"Dense price rank for hour +3 (0=cheapest, 23=most expensive)\"}}"
+
+# ── TODAY MIN / MAX / AVG BUY ────────────────────────────────────────────────
+today_min_buy=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null and . > 0)] |
+  if length > 0 then min else null end
+')
+today_max_buy=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null and . > 0)] |
+  if length > 0 then max else null end
+')
+echo "Today min buy: $today_min_buy, max buy: $today_max_buy, avg buy: $today_avg_full"
+
+ha_post "sensor.pstryk_today_min_buy" \
+  "{\"state\":\"$today_min_buy\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Min Buy Price\"}}"
+ha_post "sensor.pstryk_today_max_buy" \
+  "{\"state\":\"$today_max_buy\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Buy Price\"}}"
+ha_post "sensor.pstryk_today_avg_buy" \
+  "{\"state\":\"$today_avg_full\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Buy Price\"}}"
+
+# ── CHEAP HOURS COUNT ────────────────────────────────────────────────────────
+cheap_hours_remaining=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
+  --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end and .start > $now and .is_cheap == true)] |
+  length
+')
+cheap_hours_today_total=$(echo "$BUY_JSON" | jq -r \
+  --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.start >= $day_start and .start <= $day_end and .is_cheap == true)] |
+  length
+')
+echo "Cheap hours remaining: $cheap_hours_remaining, total today: $cheap_hours_today_total"
+
+ha_post "sensor.pstryk_cheap_hours_remaining" \
+  "{\"state\":\"$cheap_hours_remaining\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Cheap Hours Remaining Today\",\"description\":\"Number of cheap hours remaining today after the current hour\"}}"
+ha_post "sensor.pstryk_cheap_hours_today_total" \
+  "{\"state\":\"$cheap_hours_today_total\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Cheap Hours Total Today\",\"description\":\"Total number of cheap hours today (Warsaw local day)\"}}"
+
+# ── NEXT CHEAP BLOCK LENGTH ──────────────────────────────────────────────────
+if [[ -n "$next_cheap_utc" && "$next_cheap_utc" != "none" && "$next_cheap_utc" != "null" ]]; then
+  cheap_frame_list=$(echo "$BUY_JSON" | jq -r --arg start "$next_cheap_utc" '
+    [.frames[] | select(.is_cheap == true and .start >= $start)] |
+    sort_by(.start) | .[].start
+  ')
+  next_cheap_block_hours=0
+  prev_epoch=""
+  while IFS= read -r ts; do
+    [[ -z "$ts" ]] && continue
+    curr_epoch=$(date -d "$ts" +%s)
+    if [[ -z "$prev_epoch" ]]; then
+      next_cheap_block_hours=1
+    else
+      diff=$(( curr_epoch - prev_epoch ))
+      if [[ $diff -eq 3600 ]]; then
+        next_cheap_block_hours=$(( next_cheap_block_hours + 1 ))
+      else
+        break
+      fi
+    fi
+    prev_epoch=$curr_epoch
+  done <<< "$cheap_frame_list"
+else
+  next_cheap_block_hours="0"
+fi
+echo "Next cheap block length: $next_cheap_block_hours hours"
+
+ha_post "sensor.pstryk_next_cheap_block_hours" \
+  "{\"state\":\"$next_cheap_block_hours\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Next Cheap Block Hours\",\"description\":\"Number of consecutive cheap hours starting from the next cheap hour\"}}"

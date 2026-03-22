@@ -31,7 +31,10 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
    - Obsługuje zarówno argumenty skryptu jak i zmienne środowiskowe
 
 5. **Integracja z Home Assistant:**
-   - Aktualizuje 11 sensorów na uruchomienie
+   - Aktualizuje 25 sensorów na uruchomienie
+   - Ceny i rankingi dla godzin +2 i +3
+   - Statystyki cenowe dnia (min/max/avg)
+   - Liczba i bloki tanich godzin
    - Ranking cenowy w skali 0-23 dla precyzyjnych automatyzacji
    - Prawidłowe jednostki (PLN/kWh) i zarządzanie stanem
    - Logowanie debug dla rozwiązywania problemów
@@ -44,17 +47,40 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
 
 ### 📊 Sensory tworzone w Home Assistant:
 
-- `sensor.pstryk_script_current_buy` - Obecna cena sprzedaży energii przez Pstryk (cena po której kupujemy)
-- `sensor.pstryk_script_current_sell` - Obecna cena zakupu energii przez Pstryk (cena po której sprzedajemy)
+**Ceny i status bieżącej / następnej godziny:**
+- `sensor.pstryk_script_current_buy` - Obecna cena zakupu energii (PLN/kWh)
+- `sensor.pstryk_script_current_sell` - Obecna cena sprzedaży energii (PLN/kWh)
 - `sensor.pstryk_script_current_is_cheap` - Czy obecna cena jest tania (`true`/`false`)
 - `sensor.pstryk_script_current_is_expensive` - Czy obecna cena jest droga (`true`/`false`)
 - `sensor.pstryk_current_cheapest` - Czy obecna godzina jest najtańsza dzisiaj (`true`/`false`)
 - `sensor.pstryk_current_index` - **Ranking cenowy obecnej godziny (0-23)** gdzie `0` = najtańsza, `23` = najdroższa
-- `sensor.pstryk_script_next_buy` - Następna cena sprzedaży energii przez Pstryk
-- `sensor.pstryk_script_next_sell` - Następna cena zakupu energii przez Pstryk
-- `sensor.pstryk_script_next_is_cheap` - Czy następna cena będzie tania (`true`/`false`)
-- `sensor.pstryk_script_next_is_expensive` - Czy następna cena będzie droga (`true`/`false`)
+- `sensor.pstryk_current_index_sell` - Ranking cenowy ceny sprzedaży bieżącej godziny (0-23)
+- `sensor.pstryk_price_relative` - Stosunek ceny bieżącej do średniej dnia (>1.0 = drogo, <1.0 = tanio)
+- `sensor.pstryk_script_next_buy` - Cena zakupu w następnej godzinie (PLN/kWh)
+- `sensor.pstryk_script_next_sell` - Cena sprzedaży w następnej godzinie (PLN/kWh)
+- `sensor.pstryk_script_next_is_cheap` - Czy następna godzina będzie tania (`true`/`false`)
+- `sensor.pstryk_script_next_is_expensive` - Czy następna godzina będzie droga (`true`/`false`)
 - `sensor.pstryk_next_cheapest` - Czy następna godzina będzie najtańsza dzisiaj (`true`/`false`)
+
+**Ceny i rankingi dla godzin +2 i +3:**
+- `sensor.pstryk_hour_next2_buy` - Cena zakupu za 2 godziny (PLN/kWh)
+- `sensor.pstryk_hour_next2_index` - Ranking cenowy godziny +2 (0=najtańsza, 23=najdroższa)
+- `sensor.pstryk_hour_next3_buy` - Cena zakupu za 3 godziny (PLN/kWh)
+- `sensor.pstryk_hour_next3_index` - Ranking cenowy godziny +3 (0=najtańsza, 23=najdroższa)
+
+**Statystyki cenowe dnia warszawskiego:**
+- `sensor.pstryk_today_min_buy` - Najniższa cena zakupu dziś (PLN/kWh)
+- `sensor.pstryk_today_max_buy` - Najwyższa cena zakupu dziś (PLN/kWh)
+- `sensor.pstryk_today_avg_buy` - Średnia cena zakupu dziś (PLN/kWh)
+
+**Tanie godziny i bloki:**
+- `sensor.pstryk_cheap_hours_remaining` - Liczba tanich godzin pozostałych dziś po bieżącej godzinie (h)
+- `sensor.pstryk_cheap_hours_today_total` - Łączna liczba tanich godzin dziś (h)
+- `sensor.pstryk_next_cheap_hour` - Następna tania godzina (czas warszawski: YYYY-MM-DD HH:MM)
+- `sensor.pstryk_next_cheap_block_hours` - Długość kolejnego ciągłego bloku tanich godzin (h)
+
+**Jutro:**
+- `sensor.pstryk_tomorrow_cheapest_hour` - Najtańsza godzina jutro (czas warszawski HH:MM)
 
 ### � System rankingu cenowego
 
