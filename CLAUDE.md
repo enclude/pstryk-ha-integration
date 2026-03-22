@@ -37,7 +37,7 @@ docker run --rm \
 
 **Current hour detection** — Primary method: find the frame with `is_live == true` in the API response. Fallback: calculate from current UTC time.
 
-**Home Assistant sensors updated per run (28 total):**
+**Home Assistant sensors updated per run (34 total):**
 - `sensor.pstryk_script_current_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_script_next_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_current_cheapest` / `sensor.pstryk_next_cheapest`
@@ -50,6 +50,9 @@ docker run --rm \
 - `sensor.pstryk_hour_next3_buy` / `sensor.pstryk_hour_next3_index` — hour +3
 - `sensor.pstryk_today_min_buy` / `sensor.pstryk_today_max_buy` / `sensor.pstryk_today_avg_buy` — use `full_price` from BUY_JSON; filter: `!= null` (0 and negative are valid)
 - `sensor.pstryk_today_min_sell` / `sensor.pstryk_today_max_sell` / `sensor.pstryk_today_avg_sell` — use `price_gross` from SELL_JSON; filter: `!= null` (0.00 is valid midday price)
+- `sensor.pstryk_current_buy_diff_min` / `sensor.pstryk_current_buy_diff_max` — buy - min/max (PLN/kWh)
+- `sensor.pstryk_current_sell_diff_min` / `sensor.pstryk_current_sell_diff_max` — sell - min/max (PLN/kWh)
+- `sensor.pstryk_buy_relative` / `sensor.pstryk_sell_relative` — current / avg_day (1.0=avg); computed with `calc()` helper (awk, guards null and div-by-zero)
 - `sensor.pstryk_cheap_hours_remaining` / `sensor.pstryk_cheap_hours_today_total`
 - `sensor.pstryk_next_cheap_block_hours` — consecutive cheap hours from next cheap hour
 

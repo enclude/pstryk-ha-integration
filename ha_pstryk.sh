@@ -788,6 +788,49 @@ ha_post "sensor.pstryk_today_max_sell" \
 ha_post "sensor.pstryk_today_avg_sell" \
   "{\"state\":\"$today_avg_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Sell Price\"}}"
 
+# ── CURRENT HOUR DIFFS AND RELATIVES ─────────────────────────────────────────
+# diff_min = current - min  (0 = jesteśmy na minimum; >0 = drożej niż minimum)
+# diff_max = current - max  (0 = jesteśmy na maksimum; <0 = taniej niż maksimum)
+# relative  = current / avg (1.0 = średnia; >1 = drożej; <1 = taniej)
+current_buy="${A[current,buy]}"
+current_sell="${A[current,sell]}"
+
+calc() {
+  # calc <a> <op(- or /)> <b>  — zwraca wynik lub "null" gdy któryś argument to null
+  local a="$1" op="$2" b="$3"
+  if [[ "$a" == "null" || -z "$a" || "$b" == "null" || -z "$b" ]]; then
+    echo "null"; return
+  fi
+  if [[ "$op" == "/" ]]; then
+    awk -v a="$a" -v b="$b" 'BEGIN { if (b != 0) printf "%.4f", a/b; else print "null" }'
+  else
+    awk -v a="$a" -v b="$b" 'BEGIN { printf "%.4f", a-b }'
+  fi
+}
+
+buy_diff_min=$(calc  "$current_buy"  "-" "$today_min_buy")
+buy_diff_max=$(calc  "$current_buy"  "-" "$today_max_buy")
+sell_diff_min=$(calc "$current_sell" "-" "$today_min_sell")
+sell_diff_max=$(calc "$current_sell" "-" "$today_max_sell")
+buy_relative=$(calc  "$current_buy"  "/" "$today_avg_full")
+sell_relative=$(calc "$current_sell" "/" "$today_avg_sell")
+
+echo "Buy  diff_min=$buy_diff_min  diff_max=$buy_diff_max  relative=$buy_relative"
+echo "Sell diff_min=$sell_diff_min diff_max=$sell_diff_max relative=$sell_relative"
+
+ha_post "sensor.pstryk_current_buy_diff_min" \
+  "{\"state\":\"$buy_diff_min\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Buy Diff vs Min\",\"description\":\"Obecna cena zakupu minus minimum dnia (0=minimum, >0=drożej niż minimum)\"}}"
+ha_post "sensor.pstryk_current_buy_diff_max" \
+  "{\"state\":\"$buy_diff_max\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Buy Diff vs Max\",\"description\":\"Obecna cena zakupu minus maksimum dnia (0=maksimum, <0=taniej niż maksimum)\"}}"
+ha_post "sensor.pstryk_current_sell_diff_min" \
+  "{\"state\":\"$sell_diff_min\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Sell Diff vs Min\",\"description\":\"Obecna cena sprzedaży minus minimum dnia (0=minimum, >0=drożej niż minimum)\"}}"
+ha_post "sensor.pstryk_current_sell_diff_max" \
+  "{\"state\":\"$sell_diff_max\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Sell Diff vs Max\",\"description\":\"Obecna cena sprzedaży minus maksimum dnia (0=maksimum, <0=taniej niż maksimum)\"}}"
+ha_post "sensor.pstryk_buy_relative" \
+  "{\"state\":\"$buy_relative\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Buy Relative to Avg\",\"description\":\"Obecna cena zakupu / średnia dnia (1.0=średnia, >1=drożej, <1=taniej)\"}}"
+ha_post "sensor.pstryk_sell_relative" \
+  "{\"state\":\"$sell_relative\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Sell Relative to Avg\",\"description\":\"Obecna cena sprzedaży / średnia dnia (1.0=średnia, >1=drożej, <1=taniej)\"}}"
+
 # ── CHEAP HOURS COUNT ────────────────────────────────────────────────────────
 cheap_hours_remaining=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
   --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
