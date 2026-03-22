@@ -506,7 +506,7 @@ A[current,index_sell]=$current_index_sell
 # Calculate price_relative = current full_price / today's average full_price
 # Values > 1.0 mean current hour is more expensive than today's average
 today_avg_full=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null and . > 0)] |
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null)] |
   if length > 0 then (add / length) else null end
 ')
 if [[ -n "${A[current,buy]}" && "${A[current,buy]}" != "null" && -n "$today_avg_full" && "$today_avg_full" != "null" ]]; then
@@ -750,11 +750,11 @@ ha_post "sensor.pstryk_hour_next3_index" \
 
 # ── TODAY MIN / MAX / AVG BUY ────────────────────────────────────────────────
 today_min_buy=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null and . > 0)] |
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null)] |
   if length > 0 then min else null end
 ')
 today_max_buy=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null and . > 0)] |
+  [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null)] |
   if length > 0 then max else null end
 ')
 echo "Today min buy: $today_min_buy, max buy: $today_max_buy, avg buy: $today_avg_full"
