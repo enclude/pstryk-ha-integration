@@ -48,8 +48,8 @@ docker run --rm \
 - `sensor.pstryk_next_cheap_hour` — next upcoming cheap hour (Warsaw datetime)
 - `sensor.pstryk_hour_next2_buy` / `sensor.pstryk_hour_next2_index` — hour +2
 - `sensor.pstryk_hour_next3_buy` / `sensor.pstryk_hour_next3_index` — hour +3
-- `sensor.pstryk_today_min_buy` / `sensor.pstryk_today_max_buy` / `sensor.pstryk_today_avg_buy`
-- `sensor.pstryk_today_min_sell` / `sensor.pstryk_today_max_sell` / `sensor.pstryk_today_avg_sell` — sell price stats (use `price_gross` from SELL_JSON)
+- `sensor.pstryk_today_min_buy` / `sensor.pstryk_today_max_buy` / `sensor.pstryk_today_avg_buy` — use `full_price` from BUY_JSON; filter: `!= null` (0 and negative are valid)
+- `sensor.pstryk_today_min_sell` / `sensor.pstryk_today_max_sell` / `sensor.pstryk_today_avg_sell` — use `price_gross` from SELL_JSON; filter: `!= null` (0.00 is valid midday price)
 - `sensor.pstryk_cheap_hours_remaining` / `sensor.pstryk_cheap_hours_today_total`
 - `sensor.pstryk_next_cheap_block_hours` — consecutive cheap hours from next cheap hour
 

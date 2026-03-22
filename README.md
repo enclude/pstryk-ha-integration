@@ -69,10 +69,10 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
 - `sensor.pstryk_hour_next3_index` - Ranking cenowy godziny +3 (0=najtańsza, 23=najdroższa)
 
 **Statystyki cenowe dnia warszawskiego:**
-- `sensor.pstryk_today_min_buy` - Najniższa cena zakupu dziś (PLN/kWh)
+- `sensor.pstryk_today_min_buy` - Najniższa cena zakupu dziś (PLN/kWh, uwzględnia wartości ujemne i zerowe)
 - `sensor.pstryk_today_max_buy` - Najwyższa cena zakupu dziś (PLN/kWh)
 - `sensor.pstryk_today_avg_buy` - Średnia cena zakupu dziś (PLN/kWh)
-- `sensor.pstryk_today_min_sell` - Najniższa cena sprzedaży dziś (PLN/kWh)
+- `sensor.pstryk_today_min_sell` - Najniższa cena sprzedaży dziś (PLN/kWh, uwzględnia 0.00 przy nadprodukcji)
 - `sensor.pstryk_today_max_sell` - Najwyższa cena sprzedaży dziś (PLN/kWh)
 - `sensor.pstryk_today_avg_sell` - Średnia cena sprzedaży dziś (PLN/kWh)
 
