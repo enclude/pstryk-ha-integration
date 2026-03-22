@@ -457,15 +457,15 @@ echo "Warsaw day end in UTC: $WARSAW_DAY_END_UTC"
 
 current_index=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" \
    --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
-  if (.frames | length) > 0 then
-    # Get all frames for Warsaw local day (from day_start to day_end inclusive)
-    (.frames | map(select(
-      .start >= $day_start and .start <= $day_end
-    )) | sort_by(.price_gross)) as $sorted_frames |
-    # Find the index of current hour in the sorted array
-    ($sorted_frames | map(.start) | index($now)) as $index |
-    if $index != null then
-      $index
+  (.frames | map(select(
+    .start >= $day_start and .start <= $day_end
+  ))) as $day_frames |
+  if ($day_frames | length) > 0 then
+    ($day_frames | map(select(.start == $now)) | if length > 0 then .[0].price_gross else null end) as $current_price |
+    if $current_price != null then
+      # Dense rank: count distinct price levels strictly cheaper than current hour
+      # Tied hours share the same rank, so values are never skipped (0,1,2... no gaps)
+      ($day_frames | map(.price_gross) | unique | map(select(. < $current_price)) | length)
     else
       "unknown"
     end
@@ -554,7 +554,7 @@ done
 
 # Send current_index to Home Assistant
 ha_post "sensor.pstryk_current_index" \
-        "{\"state\":\"${A[current,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Current Hour Price Index\",\"description\":\"Price ranking for current hour (0=cheapest, 23=most expensive)\"}}"
+        "{\"state\":\"${A[current,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Current Hour Price Index\",\"description\":\"Dense price rank for current hour (0=cheapest tier). Hours with identical prices share the same rank, so values increment without gaps.\"}}"
 
 # Send price_relative to Home Assistant
 ha_post "sensor.pstryk_price_relative" \
