@@ -880,13 +880,13 @@ echo "Next cheap block length: $next_cheap_block_hours hours"
 ha_post "sensor.pstryk_next_cheap_block_hours" \
   "{\"state\":\"$next_cheap_block_hours\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Next Cheap Block Hours\",\"description\":\"Number of consecutive cheap hours starting from the next cheap hour\"}}"
 
-# ── DAILY SUMMARY NOTIFICATION AT 07:00 WARSAW ───────────────────────────────
+# ── TOMORROW SUMMARY NOTIFICATION AT 21:00 WARSAW ────────────────────────────
 CURRENT_WARSAW_HOUR=$(TZ='Europe/Warsaw' date +%H)
-if [[ "$CURRENT_WARSAW_HOUR" == "07" ]]; then
-  echo "=== SENDING DAILY SUMMARY (Warsaw 07:00) ==="
+if [[ "$CURRENT_WARSAW_HOUR" == "21" ]]; then
+  echo "=== SENDING TOMORROW SUMMARY (Warsaw 21:00) ==="
 
-  # Top 3 cheapest hours: timestamp<TAB>full_price
-  top3_raw=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  # Top 3 cheapest hours for tomorrow: timestamp<TAB>full_price
+  top3_raw=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_TOMORROW_START_UTC" --arg day_end "$WARSAW_TOMORROW_END_UTC" '
     [.frames[] | select(.start >= $day_start and .start <= $day_end and .full_price != null)] |
     sort_by(.full_price) | .[0:3] |
     .[] | "\(.start)\t\(.full_price)"
@@ -902,13 +902,23 @@ if [[ "$CURRENT_WARSAW_HOUR" == "07" ]]; then
 
   summary_top3=$(printf '%s, ' "${top3_parts[@]}")
   summary_top3="${summary_top3%, }"
-  summary_min=$(printf "%.2f" "${today_min_buy:-0}")
-  summary_max=$(printf "%.2f" "${today_max_buy:-0}")
 
-  summary_msg="Dziś najtańsze godziny to: ${summary_top3}. Najniższa cena to: ${summary_min} PLN, najdroższa ${summary_max} PLN"
+  tomorrow_min_buy=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_TOMORROW_START_UTC" --arg day_end "$WARSAW_TOMORROW_END_UTC" '
+    [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null)] |
+    if length > 0 then min else null end
+  ')
+  tomorrow_max_buy=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_TOMORROW_START_UTC" --arg day_end "$WARSAW_TOMORROW_END_UTC" '
+    [.frames[] | select(.start >= $day_start and .start <= $day_end) | .full_price | select(. != null)] |
+    if length > 0 then max else null end
+  ')
 
-  # Negative price hours (full_price < 0) — append only when they exist
-  negative_raw=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  summary_min=$(printf "%.2f" "${tomorrow_min_buy:-0}")
+  summary_max=$(printf "%.2f" "${tomorrow_max_buy:-0}")
+
+  summary_msg="Jutro najtańsze godziny to: ${summary_top3}. Najniższa cena to: ${summary_min} PLN, najdroższa ${summary_max} PLN"
+
+  # Negative price hours for tomorrow (full_price < 0) — append only when they exist
+  negative_raw=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_TOMORROW_START_UTC" --arg day_end "$WARSAW_TOMORROW_END_UTC" '
     [.frames[] | select(.start >= $day_start and .start <= $day_end and .full_price != null and .full_price < 0)] |
     sort_by(.start) | .[] | .start
   ')
@@ -931,17 +941,17 @@ if [[ "$CURRENT_WARSAW_HOUR" == "07" ]]; then
     fi
   fi
 
-  echo "Daily summary: $summary_msg"
+  echo "Tomorrow summary: $summary_msg"
 
   # Send as persistent notification
   daily_summary_response=$(curl -s -X POST \
     -H "Authorization: Bearer $HA_TOKEN" \
     -H "Content-Type: application/json" \
-    -d "$(jq -n --arg title "Ceny energii na dziś" --arg msg "$summary_msg" '{title: $title, message: $msg}')" \
+    -d "$(jq -n --arg title "Ceny energii na jutro" --arg msg "$summary_msg" '{title: $title, message: $msg}')" \
     "$HA_IP/api/services/persistent_notification/create")
-  echo "Daily summary notification response: $daily_summary_response"
+  echo "Tomorrow summary notification response: $daily_summary_response"
 
   # Send as sensor (for automations / phone notifications)
   ha_post "sensor.pstryk_daily_summary" \
-    "$(jq -n --arg state "$summary_msg" '{state: $state, attributes: {friendly_name: "Pstryk Daily Summary", description: "Daily energy price summary sent at 07:00 Warsaw time"}}')"
+    "$(jq -n --arg state "$summary_msg" '{state: $state, attributes: {friendly_name: "Pstryk Daily Summary", description: "Tomorrow energy price summary sent at 21:00 Warsaw time"}}')"
 fi
