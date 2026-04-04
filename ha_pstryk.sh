@@ -879,3 +879,39 @@ echo "Next cheap block length: $next_cheap_block_hours hours"
 
 ha_post "sensor.pstryk_next_cheap_block_hours" \
   "{\"state\":\"$next_cheap_block_hours\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Next Cheap Block Hours\",\"description\":\"Number of consecutive cheap hours starting from the next cheap hour\"}}"
+
+# ── DAILY SUMMARY NOTIFICATION AT 07:00 WARSAW ───────────────────────────────
+CURRENT_WARSAW_HOUR=$(TZ='Europe/Warsaw' date +%H)
+if [[ "$CURRENT_WARSAW_HOUR" == "07" ]]; then
+  echo "=== SENDING DAILY SUMMARY (Warsaw 07:00) ==="
+
+  # Top 3 cheapest hours: timestamp<TAB>full_price
+  top3_raw=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+    [.frames[] | select(.start >= $day_start and .start <= $day_end and .full_price != null)] |
+    sort_by(.full_price) | .[0:3] |
+    .[] | "\(.start)\t\(.full_price)"
+  ')
+
+  top3_parts=()
+  while IFS=$'\t' read -r ts price; do
+    [[ -z "$ts" ]] && continue
+    wh=$(TZ='Europe/Warsaw' date -d "$ts" +%H:%M)
+    formatted_price=$(printf "%.2f" "$price")
+    top3_parts+=("${wh} (${formatted_price} PLN)")
+  done <<< "$top3_raw"
+
+  summary_top3=$(printf '%s, ' "${top3_parts[@]}")
+  summary_top3="${summary_top3%, }"
+  summary_min=$(printf "%.2f" "${today_min_buy:-0}")
+  summary_max=$(printf "%.2f" "${today_max_buy:-0}")
+
+  summary_msg="Dziś najtańsze godziny to: ${summary_top3}. Najniższa cena to: ${summary_min} PLN, najdroższa ${summary_max} PLN"
+  echo "Daily summary: $summary_msg"
+
+  daily_summary_response=$(curl -s -X POST \
+    -H "Authorization: Bearer $HA_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg title "Ceny energii na dziś" --arg msg "$summary_msg" '{title: $title, message: $msg}')" \
+    "$HA_IP/api/services/persistent_notification/create")
+  echo "Daily summary response: $daily_summary_response"
+fi
