@@ -906,12 +906,42 @@ if [[ "$CURRENT_WARSAW_HOUR" == "07" ]]; then
   summary_max=$(printf "%.2f" "${today_max_buy:-0}")
 
   summary_msg="Dziś najtańsze godziny to: ${summary_top3}. Najniższa cena to: ${summary_min} PLN, najdroższa ${summary_max} PLN"
+
+  # Negative price hours (full_price < 0) — append only when they exist
+  negative_raw=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+    [.frames[] | select(.start >= $day_start and .start <= $day_end and .full_price != null and .full_price < 0)] |
+    sort_by(.start) | .[] | .start
+  ')
+
+  if [[ -n "$negative_raw" ]]; then
+    neg_timestamps=()
+    while IFS= read -r ts; do
+      [[ -z "$ts" ]] && continue
+      neg_timestamps+=("$ts")
+    done <<< "$negative_raw"
+
+    neg_first_wh=$(TZ='Europe/Warsaw' date -d "${neg_timestamps[0]}" +%H:%M)
+    neg_last_wh=$(TZ='Europe/Warsaw' date -d "${neg_timestamps[-1]}" +%H:%M)
+    neg_count=${#neg_timestamps[@]}
+
+    if [[ $neg_count -eq 1 ]]; then
+      summary_msg="${summary_msg} Uwaga: godzina z ceną ujemną: ${neg_first_wh}."
+    else
+      summary_msg="${summary_msg} Uwaga: ${neg_count} godziny z ceną ujemną: ${neg_first_wh}–${neg_last_wh}."
+    fi
+  fi
+
   echo "Daily summary: $summary_msg"
 
+  # Send as persistent notification
   daily_summary_response=$(curl -s -X POST \
     -H "Authorization: Bearer $HA_TOKEN" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg title "Ceny energii na dziś" --arg msg "$summary_msg" '{title: $title, message: $msg}')" \
     "$HA_IP/api/services/persistent_notification/create")
-  echo "Daily summary response: $daily_summary_response"
+  echo "Daily summary notification response: $daily_summary_response"
+
+  # Send as sensor (for automations / phone notifications)
+  ha_post "sensor.pstryk_daily_summary" \
+    "$(jq -n --arg state "$summary_msg" '{state: $state, attributes: {friendly_name: "Pstryk Daily Summary", description: "Daily energy price summary sent at 07:00 Warsaw time"}}')"
 fi
