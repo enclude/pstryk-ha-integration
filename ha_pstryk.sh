@@ -674,7 +674,7 @@ ha_post "sensor.pstryk_next_cheapest" \
 
 # Tomorrow cheapest hour
 tomorrow_cheapest_utc=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_TOMORROW_START_UTC" --arg day_end "$WARSAW_TOMORROW_END_UTC" '
-  [.frames[] | select(.start >= $day_start and .start <= $day_end and .full_price != null and .full_price > 0)] |
+  [.frames[] | select(.start >= $day_start and .start <= $day_end and .full_price != null)] |
   if length > 0 then min_by(.full_price).start else "unknown" end
 ')
 echo "Tomorrow cheapest hour (UTC): $tomorrow_cheapest_utc"
@@ -763,8 +763,9 @@ ha_post "sensor.pstryk_today_min_buy" \
   "{\"state\":\"$today_min_buy\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Min Buy Price\"}}"
 ha_post "sensor.pstryk_today_max_buy" \
   "{\"state\":\"$today_max_buy\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Buy Price\"}}"
+today_avg_buy_rounded=$(printf "%.2f" "${today_avg_full:-0}")
 ha_post "sensor.pstryk_today_avg_buy" \
-  "{\"state\":\"$today_avg_full\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Buy Price\"}}"
+  "{\"state\":\"$today_avg_buy_rounded\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Buy Price\"}}"
 
 # ── TODAY MIN / MAX / AVG SELL ───────────────────────────────────────────────
 today_min_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
