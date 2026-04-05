@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bash /dev/stdin \"sk-414ZRU6BL5NY2UNEUIHH65T5ES0D0F1CV6FYI0CD\" \"http://192.168.58.100:8123\" \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiMjY2ZDc5NTYzZTM0ODBjYTk5OTBhMjE0YzVkMGY4ZiIsImlhdCI6MTc0NjIxMjgzMCwiZXhwIjoyMDYxNTcyODMwfQ.q0owJQd-JXXD0WsJSfTzac-YUkIYJywndt1rqoC3fwA\" --no-update)"
+      "Bash(bash /dev/stdin \"sk-414ZRU6BL5NY2UNEUIHH65T5ES0D0F1CV6FYI0CD\" \"http://192.168.58.100:8123\" \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiMjY2ZDc5NTYzZTM0ODBjYTk5OTBhMjE0YzVkMGY4ZiIsImlhdCI6MTc0NjIxMjgzMCwiZXhwIjoyMDYxNTcyODMwfQ.q0owJQd-JXXD0WsJSfTzac-YUkIYJywndt1rqoC3fwA\" --no-update)",
+      "Bash(bash ha_pstryk.sh \"sk-414ZRU6BL5NY2UNEUIHH65T5ES0D0F1CV6FYI0CD\" \"http://192.168.58.100:8123\" \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiMjY2ZDc5NTYzZTM0ODBjYTk5OTBhMjE0YzVkMGY4ZiIsImlhdCI6MTc0NjIxMjgzMCwiZXhwIjoyMDYxNTcyODMwfQ.q0owJQd-JXXD0WsJSfTzac-YUkIYJywndt1rqoC3fwA\" --no-update 2>&1)",
+      "Bash(bash ha_pstryk.sh \"sk-414ZRU6BL5NY2UNEUIHH65T5ES0D0F1CV6FYI0CD\" \"http://192.168.58.100:8123\" \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJiMjY2ZDc5NTYzZTM0ODBjYTk5OTBhMjE0YzVkMGY4ZiIsImlhdCI6MTc0NjIxMjgzMCwiZXhwIjoyMDYxNTcyODMwfQ.q0owJQd-JXXD0WsJSfTzac-YUkIYJywndt1rqoC3fwA\" --no-update)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
