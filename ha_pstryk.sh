@@ -912,6 +912,24 @@ echo "Hours until next cheap hour: $hours_until_cheap"
 ha_post "sensor.pstryk_hours_until_cheap" \
   "{\"state\":\"$hours_until_cheap\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Hours Until Cheap\",\"description\":\"Whole hours until the next cheap hour starts\"}}"
 
+# ── HOURS UNTIL NEXT CHEAP HOUR TODAY (0 if none left today) ─────────────────
+next_cheap_today_utc=$(echo "$BUY_JSON" | jq -r \
+  --arg now "${HOUR[current]}" \
+  --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[] | select(.is_cheap == true and .start > $now and .start <= $day_end)] |
+  if length > 0 then (sort_by(.start) | first | .start) else "none" end
+')
+if [[ "$next_cheap_today_utc" != "none" ]]; then
+  current_epoch=$(date -d "${HOUR[current]}" +%s)
+  hours_until_cheap_today=$(( ($(date -d "$next_cheap_today_utc" +%s) - current_epoch) / 3600 ))
+else
+  hours_until_cheap_today=0
+fi
+echo "Hours until next cheap hour today: $hours_until_cheap_today"
+
+ha_post "sensor.pstryk_hours_until_cheap_today" \
+  "{\"state\":\"$hours_until_cheap_today\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Hours Until Cheap Today\",\"description\":\"Whole hours until the next cheap hour today (0 if none left today)\"}}"
+
 # ── HOURS UNTIL BEST 6-CONSECUTIVE-HOUR BLOCK ────────────────────────────────
 # Find the 6-hour window with the lowest sum of full_price among upcoming frames
 best6_start_utc=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" '
