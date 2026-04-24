@@ -135,14 +135,13 @@ echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
 
 API_BASE="https://api.pstryk.pl/integrations"
-# TODO: Migrate /pricing/ and /prosumer-pricing/ to /meter-data/unified-metrics/?metrics=pricing
-#       before April 1, 2026 when legacy endpoints are decommissioned.
-#       The new endpoint returns frames[].metrics.pricing.{field} instead of frames[].{field}.
+# Endpoint: /meter-data/unified-metrics/?metrics=pricing&resolution=hour
+# Fields live under frames[].metrics.pricing.{field}; normalized to top-level after fetch.
 # Request data from yesterday 22:00 UTC to cover Warsaw 00:00 in both CET and CEST
 # CET (winter): Warsaw 00:00 = yesterday 23:00 UTC
 # CEST (summer): Warsaw 00:00 = yesterday 22:00 UTC
-START=$(date -u -d 'yesterday 22:00' +"%Y-%m-%dT%H:00:00+00:00")
-STOP=$(date -u -d 'tomorrow 23:59:59' +"%Y-%m-%dT%H:%M:%S+00:00")
+START=$(date -u -d 'yesterday 22:00' +"%Y-%m-%dT%H:00:00Z")
+STOP=$(date -u -d 'tomorrow 23:59:59' +"%Y-%m-%dT%H:%M:%SZ")
 
 echo $START
 echo $STOP
@@ -241,15 +240,17 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
   fi
 
   # Try API
-  echo "API Request: $API_BASE/$endpoint/ with window_start=$START window_end=$STOP" >&2
+  local api_url="$API_BASE/meter-data/unified-metrics/"
+  echo "API Request: $api_url with window_start=$START window_end=$STOP" >&2
   local response
   response=$(curl -sG \
        -H "accept: application/json" \
        -H "Authorization: $API_TOKEN" \
+       --data-urlencode metrics=pricing \
        --data-urlencode resolution=hour \
        --data-urlencode window_start="$START" \
        --data-urlencode window_end="$STOP" \
-       "$API_BASE/$endpoint/") || true
+       "$api_url") || true
   echo "API Response for $endpoint (first 200 chars): $(echo "$response" | head -c 200)" >&2
   echo "$response" > /tmp/pstryk_last_api_response.json
 
@@ -387,9 +388,26 @@ ha_post() {       # ha_post <entity_id> <json_body>
 
 cleanup_old_cache
 
-# download once, reuse many times
-BUY_JSON=$( get_json pricing )
-SELL_JSON=$( get_json prosumer-pricing )
+# Single call to unified endpoint; flatten .metrics.pricing.* to top level
+# for backward compatibility with all existing jq expressions.
+# Z timestamps normalized to +00:00 to match generated date bounds.
+_RAW_JSON=$( get_json unified-metrics )
+BUY_JSON=$(echo "$_RAW_JSON" | jq '
+  .frames |= map(
+    (.start |= gsub("Z$"; "+00:00")) |
+    (.end   |= gsub("Z$"; "+00:00")) |
+    . + (.metrics.pricing // {})
+  )
+')
+# SELL_JSON: same data but price_gross = price_prosumer_gross (prosumer sell price)
+SELL_JSON=$(echo "$_RAW_JSON" | jq '
+  .frames |= map(
+    (.start |= gsub("Z$"; "+00:00")) |
+    (.end   |= gsub("Z$"; "+00:00")) |
+    . + (.metrics.pricing // {}) |
+    .price_gross = (.metrics.pricing.price_prosumer_gross // null)
+  )
+')
 
 # Debug: Check if we got valid JSON
 echo "BUY_JSON length: $(echo "$BUY_JSON" | wc -c)"
