@@ -899,6 +899,49 @@ echo "Next cheap block length: $next_cheap_block_hours hours"
 ha_post "sensor.pstryk_next_cheap_block_hours" \
   "{\"state\":\"$next_cheap_block_hours\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Next Cheap Block Hours\",\"description\":\"Number of consecutive cheap hours starting from the next cheap hour\"}}"
 
+# ── HOURS UNTIL NEXT CHEAP HOUR ──────────────────────────────────────────────
+if [[ -n "$next_cheap_utc" && "$next_cheap_utc" != "none" && "$next_cheap_utc" != "null" ]]; then
+  current_epoch=$(date -d "${HOUR[current]}" +%s)
+  next_cheap_epoch=$(date -d "$next_cheap_utc" +%s)
+  hours_until_cheap=$(( (next_cheap_epoch - current_epoch) / 3600 ))
+else
+  hours_until_cheap="unknown"
+fi
+echo "Hours until next cheap hour: $hours_until_cheap"
+
+ha_post "sensor.pstryk_hours_until_cheap" \
+  "{\"state\":\"$hours_until_cheap\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Hours Until Cheap\",\"description\":\"Whole hours until the next cheap hour starts\"}}"
+
+# ── HOURS UNTIL BEST 6-CONSECUTIVE-HOUR BLOCK ────────────────────────────────
+# Find the 6-hour window with the lowest sum of full_price among upcoming frames
+best6_start_utc=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" '
+  [.frames[] | select(.start >= $now)] | sort_by(.start) |
+  if length >= 6 then
+    . as $f |
+    [range(length - 5)] |
+    map(. as $i | {
+      start: $f[$i].start,
+      sum: ([$f[$i], $f[$i+1], $f[$i+2], $f[$i+3], $f[$i+4], $f[$i+5]] | map(.full_price // 9999) | add)
+    }) |
+    min_by(.sum) | .start
+  else "none" end
+')
+echo "Best 6-hour block start (UTC): $best6_start_utc"
+
+if [[ -n "$best6_start_utc" && "$best6_start_utc" != "none" && "$best6_start_utc" != "null" ]]; then
+  current_epoch=$(date -d "${HOUR[current]}" +%s)
+  best6_epoch=$(date -d "$best6_start_utc" +%s)
+  hours_until_cheap6=$(( (best6_epoch - current_epoch) / 3600 ))
+  best6_warsaw=$(TZ='Europe/Warsaw' date -d "$best6_start_utc" +"%H:%M")
+else
+  hours_until_cheap6="unknown"
+  best6_warsaw="unknown"
+fi
+echo "Hours until best 6h block: $hours_until_cheap6 (starts Warsaw: $best6_warsaw)"
+
+ha_post "sensor.pstryk_hours_until_cheap6_block" \
+  "{\"state\":\"$hours_until_cheap6\",\"attributes\":{\"unit_of_measurement\":\"h\",\"friendly_name\":\"Pstryk Hours Until Cheap 6h Block\",\"start_warsaw\":\"$best6_warsaw\",\"description\":\"Whole hours until the 6 cheapest consecutive hours start\"}}"
+
 # ── TOMORROW SUMMARY NOTIFICATION AT 21:00 WARSAW ────────────────────────────
 CURRENT_WARSAW_HOUR=$(TZ='Europe/Warsaw' date +%H)
 if [[ "$CURRENT_WARSAW_HOUR" == "21" ]]; then
