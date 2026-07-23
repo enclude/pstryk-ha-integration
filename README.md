@@ -31,9 +31,12 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
    - Obsługuje zarówno argumenty skryptu jak i zmienne środowiskowe
 
 5. **Integracja z Home Assistant:**
-   - Aktualizuje 34 sensory na uruchomienie
+   - Aktualizuje 53 sensory na uruchomienie
    - Ceny i rankingi dla godzin +2 i +3
    - Statystyki cenowe dnia (min/max/avg)
+   - **Zużycie, koszt dobowy i ślad węglowy** (metryki `meter_values`, `cost`, `carbon`)
+   - **Wartości za poprzednią pełną godzinę** (`sensor.pstryk_current_*`) — dane rzeczywiste
+   - **Tablica godzinowa cen na cały dzień** (`sensor.pstryk_today_prices`) do wykresów
    - Liczba i bloki tanich godzin
    - Ranking cenowy w skali 0-23 dla precyzyjnych automatyzacji
    - Prawidłowe jednostki (PLN/kWh) i zarządzanie stanem
@@ -93,6 +96,25 @@ Ten skrypt integruje API cenowe Pstryk z Home Assistant, zapewniając monitorowa
 **Jutro:**
 - `sensor.pstryk_tomorrow_cheapest_hour` - Najtańsza godzina jutro (czas warszawski HH:MM)
 
+**Zużycie, koszt dobowy i CO₂ (suma za dobę warszawską):**
+- `sensor.pstryk_today_energy_import` - Energia pobrana z sieci dziś (kWh)
+- `sensor.pstryk_today_energy_export` - Energia oddana do sieci dziś (kWh)
+- `sensor.pstryk_today_energy_balance` - Bilans energii dziś (import − export, kWh)
+- `sensor.pstryk_today_cost` - Koszt energii pobranej dziś (PLN)
+- `sensor.pstryk_today_revenue` - Przychód ze sprzedaży energii dziś (PLN)
+- `sensor.pstryk_today_net_cost` - Bilans finansowy dziś (koszt importu − wartość sprzedaży, PLN)
+- `sensor.pstryk_today_co2` - Ślad węglowy dziś (g CO₂)
+
+**Wartości za poprzednią pełną godzinę** (dane rzeczywiste — patrz uwaga niżej; atrybut `prev_hour_utc`):
+- `sensor.pstryk_current_energy_import` / `_energy_export` / `_energy_balance` - Zużycie za poprzednią godzinę (kWh)
+- `sensor.pstryk_current_cost` / `_revenue` / `_net_cost` - Koszt / przychód / bilans za poprzednią godzinę (PLN)
+- `sensor.pstryk_current_co2` - Ślad węglowy za poprzednią godzinę (g CO₂)
+
+> ℹ️ **Dlaczego poprzednia godzina?** Metryki `meter_values`/`cost`/`carbon` to dane **rzeczywiste** (nie prognoza). Cron uruchamia się o pełnej godzinie i 15 s, więc godzina, która właśnie się zaczęła, nie ma jeszcze danych — sensory `current_*` raportują ostatnią **zamkniętą** godzinę.
+
+**Tablica cen na cały dzień (do wykresów):**
+- `sensor.pstryk_today_prices` - Stan = data warszawska; atrybut `prices` zawiera pełną dobę godzinową w formacie `[{t, buy, sell}]`, gdzie `t` = początek godziny w UTC (ISO), `buy` = cena zakupu (`full_price`), `sell` = cena sprzedaży (`price_prosumer_gross`). Zobacz sekcję [Wykres cen na cały dzień](#-wykres-cen-na-cały-dzień-apexcharts).
+
 ### � System rankingu cenowego
 
 Sensor `pstryk_current_index` zapewnia precyzyjny ranking cen na skalę 0-23:
@@ -114,6 +136,47 @@ automation:
       - service: switch.turn_on
         entity_id: switch.washing_machine
 ```
+
+### 📈 Wykres cen na cały dzień (ApexCharts)
+
+Pojedyncze sensory cenowe (`pstryk_script_current_buy` itd.) zmieniają się co godzinę, więc standardowa karta **History** pokaże tylko krzywą z godzin, które już minęły. Aby narysować **całą dobę naraz** (z godzinami przyszłymi), użyj sensora `sensor.pstryk_today_prices` — jego atrybut `prices` zawiera wszystkie 24 godziny (zakup i sprzedaż).
+
+**Wymagany dodatek:** [ApexCharts Card](https://github.com/RomRider/apexcharts-card) (instalacja przez HACS → Frontend → „ApexCharts Card").
+
+**Struktura danych w atrybucie `prices`:**
+```json
+[
+  { "t": "2026-07-22T22:00:00+00:00", "buy": 1.215, "sell": 0.7163 },
+  { "t": "2026-07-22T23:00:00+00:00", "buy": 1.1869, "sell": 0.6881 }
+]
+```
+`t` to znacznik UTC (ISO) — `new Date(t)` zwraca prawidłowy moment, który karta wyświetli w lokalnej strefie przeglądarki (Warszawa).
+
+**Konfiguracja karty (zakup + sprzedaż na jednym wykresie):**
+```yaml
+type: custom:apexcharts-card
+graph_span: 24h
+span:
+  start: day          # oś od północy czasu lokalnego
+header:
+  show: true
+  title: Ceny energii dziś (PLN/kWh)
+series:
+  - entity: sensor.pstryk_today_prices
+    name: Zakup
+    type: line
+    curve: stepline
+    data_generator: |
+      return entity.attributes.prices.map(p => [new Date(p.t).getTime(), p.buy]);
+  - entity: sensor.pstryk_today_prices
+    name: Sprzedaż
+    type: line
+    curve: stepline
+    data_generator: |
+      return entity.attributes.prices.map(p => [new Date(p.t).getTime(), p.sell]);
+```
+
+> 💡 Wskazówka: `curve: stepline` daje „schodki" godzinowe (cena jest stała w obrębie godziny). Dla gładkiej linii użyj `curve: smooth`.
 
 ### �🔧 Wymagania systemowe:
 
@@ -192,12 +255,16 @@ rm -f /var/tmp/pstryk_cache*.txt
 
 ### Problemy z API
 ```bash
-# Test bezpośredniego wywołania API
+# Test bezpośredniego wywołania API (endpoint unified-metrics)
 curl -sG \
   -H "Authorization: TWÓJ_TOKEN" \
-  "https://api.pstryk.pl/integrations/pricing/" \
-  --data-urlencode "resolution=hour"
+  "https://api.pstryk.pl/integrations/meter-data/unified-metrics/" \
+  --data-urlencode "metrics=meter_values,cost,carbon,pricing" \
+  --data-urlencode "resolution=hour" \
+  --data-urlencode "window_start=2026-07-22T22:00:00Z" \
+  --data-urlencode "window_end=2026-07-24T22:00:00Z"
 ```
+> Uwaga: starsze endpointy `/pricing/` i `/prosumer-pricing/` zostały wyłączone (kwiecień 2026). Parametr `for_tz` **nie jest** wspierany dla `resolution=hour`.
 
 ### Problemy ze strefą czasową
 ```bash

@@ -44,7 +44,7 @@ docker run --rm \
 
 **Price ranking (`current_index`)** — Uses dense ranking: count of distinct `full_price` levels strictly cheaper than the current hour. Tied hours share the same rank, so values never skip (0, 1, 2… without gaps). Same logic applies to `current_index_sell` (uses `price_prosumer_gross`).
 
-**Home Assistant sensors updated per run (52 total):**
+**Home Assistant sensors updated per run (53 total):**
 - `sensor.pstryk_script_current_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_script_next_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_current_cheapest` / `sensor.pstryk_next_cheapest`
@@ -61,6 +61,7 @@ docker run --rm \
 - `sensor.pstryk_today_cost` / `sensor.pstryk_today_revenue` / `sensor.pstryk_today_net_cost` — sum of `cost.energy_import_cost` / `energy_sold_value` / `energy_balance_value` over today (PLN, 2 dp); net = import cost − sold value
 - `sensor.pstryk_today_co2` — sum of `carbon.carbon_footprint` over today (g CO₂, 1 dp)
 - `sensor.pstryk_current_energy_import` / `sensor.pstryk_current_energy_export` / `sensor.pstryk_current_energy_balance` / `sensor.pstryk_current_cost` / `sensor.pstryk_current_revenue` / `sensor.pstryk_current_net_cost` / `sensor.pstryk_current_co2` — same `meter_values`/`cost`/`carbon` fields but for the **previous full hour** (single frame at `HOUR[current] − 1h`, via `frame_at`), because these are actuals and the hour that just started has no data when cron fires at HH:00:15. Each carries a `prev_hour_utc` attribute. `frame_at` preserves `0` and returns `null` for a missing frame.
+- `sensor.pstryk_today_prices` — state = Warsaw date; attribute `prices` holds the full Warsaw-day hourly array `[{t, buy, sell}]` (`t` = UTC ISO hour start, `buy` = `full_price`, `sell` = `price_prosumer_gross`, both rounded to 4 dp). Built from `BUY_JSON` (both fields already flattened). Intended for chart cards (e.g. ApexCharts `data_generator`).
 - `sensor.pstryk_current_buy_diff_min` / `sensor.pstryk_current_buy_diff_max` — buy − min/max (PLN/kWh)
 - `sensor.pstryk_current_sell_diff_min` / `sensor.pstryk_current_sell_diff_max` — sell − min/max (PLN/kWh)
 - `sensor.pstryk_buy_relative` / `sensor.pstryk_sell_relative` — current / avg_day (1.0=avg); computed with `calc()` helper (awk, guards null and div-by-zero)

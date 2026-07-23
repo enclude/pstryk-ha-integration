@@ -808,6 +808,33 @@ ha_post "sensor.pstryk_today_max_sell" \
 ha_post "sensor.pstryk_today_avg_sell" \
   "{\"state\":\"$today_avg_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Sell Price\"}}"
 
+# ── TODAY HOURLY PRICE ARRAY (for charts, e.g. ApexCharts) ───────────────────
+# One sensor whose `prices` attribute holds the full Warsaw-day curve: buy
+# (full_price) + sell (price_prosumer_gross) per hour. State = the Warsaw date.
+# `t` is the UTC ISO start of each hour (unambiguous instant; chart renders it
+# in the viewer's local tz). BUY_JSON already carries both flattened fields.
+today_prices=$(echo "$BUY_JSON" | jq -c \
+  --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" '
+  [.frames[]
+    | select(.start >= $day_start and .start <= $day_end)
+    | {
+        t:    .start,
+        buy:  (if .price_gross == null then null else (.price_gross * 10000 | round / 10000) end),
+        sell: (if .price_prosumer_gross == null then null else (.price_prosumer_gross * 10000 | round / 10000) end)
+      }]
+')
+echo "Today prices array hours: $(echo "$today_prices" | jq 'length')"
+ha_post "sensor.pstryk_today_prices" \
+  "$(jq -n --arg date "$WARSAW_TODAY" --argjson prices "$today_prices" '{
+      state: $date,
+      attributes: {
+        unit_of_measurement: "",
+        friendly_name: "Pstryk Today Prices",
+        prices: $prices,
+        description: "Hourly buy (full_price) and sell (price_prosumer_gross) for the Warsaw day; t is UTC ISO start of each hour"
+      }
+    }')"
+
 # ── ENERGY / COST / CARBON (meter_values, cost, carbon metrics) ───────────────
 # These metrics live under frames[].metrics.{meter_values,cost,carbon} and are NOT
 # flattened into BUY_JSON/SELL_JSON. EXTRA_JSON only normalizes the Z timestamps so
