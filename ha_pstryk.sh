@@ -135,8 +135,9 @@ echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
 
 API_BASE="https://api.pstryk.pl/integrations"
-# Endpoint: /meter-data/unified-metrics/?metrics=pricing&resolution=hour
-# Fields live under frames[].metrics.pricing.{field}; normalized to top-level after fetch.
+# Endpoint: /meter-data/unified-metrics/?metrics=meter_values,cost,carbon,pricing&resolution=hour
+# pricing fields live under frames[].metrics.pricing.{field}; normalized to top-level after fetch.
+# meter_values/cost/carbon are read directly from frames[].metrics.{metric}.{field} (see EXTRA_JSON).
 # Request data from yesterday 22:00 UTC to cover Warsaw 00:00 in both CET and CEST
 # CET (winter): Warsaw 00:00 = yesterday 23:00 UTC
 # CEST (summer): Warsaw 00:00 = yesterday 22:00 UTC
@@ -246,7 +247,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
   response=$(curl -sG \
        -H "accept: application/json" \
        -H "Authorization: $API_TOKEN" \
-       --data-urlencode metrics=pricing \
+       --data-urlencode metrics=meter_values,cost,carbon,pricing \
        --data-urlencode resolution=hour \
        --data-urlencode window_start="$START" \
        --data-urlencode window_end="$STOP" \
@@ -806,6 +807,71 @@ ha_post "sensor.pstryk_today_max_sell" \
   "{\"state\":\"$today_max_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Sell Price\"}}"
 ha_post "sensor.pstryk_today_avg_sell" \
   "{\"state\":\"$today_avg_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Sell Price\"}}"
+
+# ── ENERGY / COST / CARBON (meter_values, cost, carbon metrics) ───────────────
+# These metrics live under frames[].metrics.{meter_values,cost,carbon} and are NOT
+# flattened into BUY_JSON/SELL_JSON. EXTRA_JSON only normalizes the Z timestamps so
+# the Warsaw-day filter (shared with pricing) matches. Daily values = sum over today.
+EXTRA_JSON=$(echo "$_RAW_JSON" | jq '
+  .frames |= map(
+    (.start |= gsub("Z$"; "+00:00")) |
+    (.end   |= gsub("Z$"; "+00:00"))
+  )
+')
+
+# sum_today <dotted.path> — sum a nested frame field over today's Warsaw day; "null" if none
+sum_today() {
+  echo "$EXTRA_JSON" | jq -r \
+    --arg day_start "$WARSAW_DAY_START_UTC" --arg day_end "$WARSAW_DAY_END_UTC" --arg path "$1" '
+    [.frames[]
+      | select(.start >= $day_start and .start <= $day_end)
+      | getpath($path | split("."))
+      | select(. != null)]
+    | if length > 0 then add else null end
+  '
+}
+
+# Energy usage (kWh)
+today_energy_import=$(sum_today "metrics.meter_values.energy_active_import_register")
+today_energy_export=$(sum_today "metrics.meter_values.energy_active_export_register")
+today_energy_balance=$(sum_today "metrics.meter_values.energy_balance")
+# Daily cost (PLN)
+today_cost=$(sum_today "metrics.cost.energy_import_cost")
+today_revenue=$(sum_today "metrics.cost.energy_sold_value")
+today_net_cost=$(sum_today "metrics.cost.energy_balance_value")
+# Carbon footprint (g CO2)
+today_co2=$(sum_today "metrics.carbon.carbon_footprint")
+
+# round <value> <decimals>; passes "null" through unchanged
+round() {
+  if [[ -z "$1" || "$1" == "null" ]]; then echo "null"; else printf "%.${2}f" "$1"; fi
+}
+today_energy_import_r=$(round "$today_energy_import" 3)
+today_energy_export_r=$(round "$today_energy_export" 3)
+today_energy_balance_r=$(round "$today_energy_balance" 3)
+today_cost_r=$(round "$today_cost" 2)
+today_revenue_r=$(round "$today_revenue" 2)
+today_net_cost_r=$(round "$today_net_cost" 2)
+today_co2_r=$(round "$today_co2" 1)
+
+echo "Today energy import/export/balance: $today_energy_import_r / $today_energy_export_r / $today_energy_balance_r kWh"
+echo "Today cost/revenue/net: $today_cost_r / $today_revenue_r / $today_net_cost_r PLN"
+echo "Today CO2: $today_co2_r g"
+
+ha_post "sensor.pstryk_today_energy_import" \
+  "{\"state\":\"$today_energy_import_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total\",\"friendly_name\":\"Pstryk Today Energy Import\"}}"
+ha_post "sensor.pstryk_today_energy_export" \
+  "{\"state\":\"$today_energy_export_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total\",\"friendly_name\":\"Pstryk Today Energy Export\"}}"
+ha_post "sensor.pstryk_today_energy_balance" \
+  "{\"state\":\"$today_energy_balance_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"friendly_name\":\"Pstryk Today Energy Balance\",\"description\":\"Import minus export (positive = net consumption)\"}}"
+ha_post "sensor.pstryk_today_cost" \
+  "{\"state\":\"$today_cost_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",\"friendly_name\":\"Pstryk Today Cost\",\"description\":\"Cost of energy imported from grid today\"}}"
+ha_post "sensor.pstryk_today_revenue" \
+  "{\"state\":\"$today_revenue_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",\"friendly_name\":\"Pstryk Today Revenue\",\"description\":\"Value of energy sold to grid today\"}}"
+ha_post "sensor.pstryk_today_net_cost" \
+  "{\"state\":\"$today_net_cost_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",\"friendly_name\":\"Pstryk Today Net Cost\",\"description\":\"Import cost minus sold value today (positive = you pay)\"}}"
+ha_post "sensor.pstryk_today_co2" \
+  "{\"state\":\"$today_co2_r\",\"attributes\":{\"unit_of_measurement\":\"g\",\"device_class\":\"carbon_dioxide\",\"friendly_name\":\"Pstryk Today CO2 Footprint\"}}"
 
 # ── CURRENT HOUR DIFFS AND RELATIVES ─────────────────────────────────────────
 # diff_min = current - min  (0 = jesteśmy na minimum; >0 = drożej niż minimum)

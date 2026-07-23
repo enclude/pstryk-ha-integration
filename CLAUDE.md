@@ -31,7 +31,7 @@ docker run --rm \
 
 **Single script, no tests framework** — `ha_pstryk.sh` is the entire codebase. All logic lives there: cache management, API calls, timezone math, and Home Assistant sensor updates.
 
-**API endpoint** — Single call to `/integrations/meter-data/unified-metrics/?metrics=pricing&resolution=hour`. Legacy endpoints `/pricing/` and `/prosumer-pricing/` were decommissioned April 2026. The unified response is normalized after fetch: `.metrics.pricing.*` fields are flattened to frame top-level and `Z` timestamps converted to `+00:00` for backward-compatible jq comparisons. `SELL_JSON` is the same data but with `price_gross` overridden by `price_prosumer_gross`.
+**API endpoint** — Single call to `/integrations/meter-data/unified-metrics/?metrics=meter_values,cost,carbon,pricing&resolution=hour`. Legacy endpoints `/pricing/` and `/prosumer-pricing/` were decommissioned April 2026. The unified response is normalized after fetch: `.metrics.pricing.*` fields are flattened to frame top-level and `Z` timestamps converted to `+00:00` for backward-compatible jq comparisons. `SELL_JSON` is the same data but with `price_gross` overridden by `price_prosumer_gross`. The `meter_values`, `cost`, and `carbon` metrics are NOT flattened — they are read directly from `frames[].metrics.{metric}.{field}` via `EXTRA_JSON` (only Z timestamps normalized) and the `sum_today` helper. Note: `for_tz=Europe/Warsaw` is rejected by the API for `resolution=hour`, so the manual timezone math cannot be delegated to the API.
 
 **Cache system** — Two files in `/var/tmp/`:
 - `pstryk_cache.txt` — base64-encoded JSON responses, keyed by `endpoint_YYYY-MM-DDTHH`
@@ -44,7 +44,7 @@ docker run --rm \
 
 **Price ranking (`current_index`)** — Uses dense ranking: count of distinct `full_price` levels strictly cheaper than the current hour. Tied hours share the same rank, so values never skip (0, 1, 2… without gaps). Same logic applies to `current_index_sell` (uses `price_prosumer_gross`).
 
-**Home Assistant sensors updated per run (38 total):**
+**Home Assistant sensors updated per run (45 total):**
 - `sensor.pstryk_script_current_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_script_next_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_current_cheapest` / `sensor.pstryk_next_cheapest`
@@ -57,6 +57,9 @@ docker run --rm \
 - `sensor.pstryk_hour_next3_buy` / `sensor.pstryk_hour_next3_index` — hour +3
 - `sensor.pstryk_today_min_buy` / `sensor.pstryk_today_max_buy` / `sensor.pstryk_today_avg_buy` — use `full_price`; avg rounded to 2 dp; filter: `!= null` (0 and negative are valid)
 - `sensor.pstryk_today_min_sell` / `sensor.pstryk_today_max_sell` / `sensor.pstryk_today_avg_sell` — use `price_prosumer_gross`; filter: `!= null`
+- `sensor.pstryk_today_energy_import` / `sensor.pstryk_today_energy_export` / `sensor.pstryk_today_energy_balance` — sum of `meter_values.energy_active_import_register` / `energy_active_export_register` / `energy_balance` over today (kWh, 3 dp); balance = import − export
+- `sensor.pstryk_today_cost` / `sensor.pstryk_today_revenue` / `sensor.pstryk_today_net_cost` — sum of `cost.energy_import_cost` / `energy_sold_value` / `energy_balance_value` over today (PLN, 2 dp); net = import cost − sold value
+- `sensor.pstryk_today_co2` — sum of `carbon.carbon_footprint` over today (g CO₂, 1 dp)
 - `sensor.pstryk_current_buy_diff_min` / `sensor.pstryk_current_buy_diff_max` — buy − min/max (PLN/kWh)
 - `sensor.pstryk_current_sell_diff_min` / `sensor.pstryk_current_sell_diff_max` — sell − min/max (PLN/kWh)
 - `sensor.pstryk_buy_relative` / `sensor.pstryk_sell_relative` — current / avg_day (1.0=avg); computed with `calc()` helper (awk, guards null and div-by-zero)
