@@ -873,6 +873,55 @@ ha_post "sensor.pstryk_today_net_cost" \
 ha_post "sensor.pstryk_today_co2" \
   "{\"state\":\"$today_co2_r\",\"attributes\":{\"unit_of_measurement\":\"g\",\"device_class\":\"carbon_dioxide\",\"friendly_name\":\"Pstryk Today CO2 Footprint\"}}"
 
+# ── PREVIOUS FULL HOUR ENERGY / COST / CARBON ────────────────────────────────
+# meter_values/cost/carbon are actuals, so the hour that just STARTED has no data
+# yet (cron fires at HH:00:15). Report the previous completed hour instead.
+PREV_HOUR_UTC=$(TZ=UTC date -d "${HOUR[current]} -1 hour" +"%Y-%m-%dT%H:00:00+00:00")
+echo "Previous full hour (UTC): $PREV_HOUR_UTC"
+
+# frame_at <timestamp> <dotted.path> — single frame field; "null" if frame/field absent (0 preserved)
+frame_at() {
+  echo "$EXTRA_JSON" | jq -r --arg t "$1" --arg path "$2" '
+    [.frames[] | select(.start == $t) | getpath($path | split("."))] | .[0] // null
+  '
+}
+
+cur_energy_import=$(frame_at "$PREV_HOUR_UTC" "metrics.meter_values.energy_active_import_register")
+cur_energy_export=$(frame_at "$PREV_HOUR_UTC" "metrics.meter_values.energy_active_export_register")
+cur_energy_balance=$(frame_at "$PREV_HOUR_UTC" "metrics.meter_values.energy_balance")
+cur_cost=$(frame_at "$PREV_HOUR_UTC" "metrics.cost.energy_import_cost")
+cur_revenue=$(frame_at "$PREV_HOUR_UTC" "metrics.cost.energy_sold_value")
+cur_net_cost=$(frame_at "$PREV_HOUR_UTC" "metrics.cost.energy_balance_value")
+cur_co2=$(frame_at "$PREV_HOUR_UTC" "metrics.carbon.carbon_footprint")
+
+cur_energy_import_r=$(round "$cur_energy_import" 3)
+cur_energy_export_r=$(round "$cur_energy_export" 3)
+cur_energy_balance_r=$(round "$cur_energy_balance" 3)
+cur_cost_r=$(round "$cur_cost" 2)
+cur_revenue_r=$(round "$cur_revenue" 2)
+cur_net_cost_r=$(round "$cur_net_cost" 2)
+cur_co2_r=$(round "$cur_co2" 1)
+
+echo "Prev-hour energy import/export/balance: $cur_energy_import_r / $cur_energy_export_r / $cur_energy_balance_r kWh"
+echo "Prev-hour cost/revenue/net: $cur_cost_r / $cur_revenue_r / $cur_net_cost_r PLN"
+echo "Prev-hour CO2: $cur_co2_r g"
+
+PREV_ATTR="\"prev_hour_utc\":\"$PREV_HOUR_UTC\""
+ha_post "sensor.pstryk_current_energy_import" \
+  "{\"state\":\"$cur_energy_import_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Energy Import\",\"description\":\"Energy imported during the previous full hour\"}}"
+ha_post "sensor.pstryk_current_energy_export" \
+  "{\"state\":\"$cur_energy_export_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Energy Export\",\"description\":\"Energy exported during the previous full hour\"}}"
+ha_post "sensor.pstryk_current_energy_balance" \
+  "{\"state\":\"$cur_energy_balance_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Energy Balance\",\"description\":\"Import minus export during the previous full hour\"}}"
+ha_post "sensor.pstryk_current_cost" \
+  "{\"state\":\"$cur_cost_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Cost\",\"description\":\"Cost of energy imported during the previous full hour\"}}"
+ha_post "sensor.pstryk_current_revenue" \
+  "{\"state\":\"$cur_revenue_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Revenue\",\"description\":\"Value of energy sold during the previous full hour\"}}"
+ha_post "sensor.pstryk_current_net_cost" \
+  "{\"state\":\"$cur_net_cost_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Net Cost\",\"description\":\"Import cost minus sold value during the previous full hour\"}}"
+ha_post "sensor.pstryk_current_co2" \
+  "{\"state\":\"$cur_co2_r\",\"attributes\":{\"unit_of_measurement\":\"g\",\"device_class\":\"carbon_dioxide\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour CO2 Footprint\",\"description\":\"Carbon footprint during the previous full hour\"}}"
+
 # ── CURRENT HOUR DIFFS AND RELATIVES ─────────────────────────────────────────
 # diff_min = current - min  (0 = jesteśmy na minimum; >0 = drożej niż minimum)
 # diff_max = current - max  (0 = jesteśmy na maksimum; <0 = taniej niż maksimum)
