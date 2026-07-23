@@ -113,18 +113,46 @@ views:
             icon: mdi:cash-plus
             color: green
 
-          # Ranking ceny — kolor wg statusu (nie wg progów liczbowych):
-          #   is_expensive=true → czerwony, is_cheap=true → zielony, inaczej → żółty.
-          # ha-alert: success=zielony, warning=żółty, error=czerwony (natywne w HA).
-          - type: markdown
-            content: |
-              {% set cheap = is_state('sensor.pstryk_script_current_is_cheap','true') %}
-              {% set exp = is_state('sensor.pstryk_script_current_is_expensive','true') %}
-              {% set idx = states('sensor.pstryk_current_index') %}
-              {% if exp %}{% set t = 'error' %}{% set label = 'Drogo' %}
-              {% elif cheap %}{% set t = 'success' %}{% set label = 'Tanio' %}
-              {% else %}{% set t = 'warning' %}{% set label = 'Średnio' %}{% endif %}
-              <ha-alert alert-type="{{ t }}" title="Ranking ceny: {{ idx }} / 23">{{ label }} — obecna cena zakupu na tle doby</ha-alert>
+          # Ranking ceny — kolorowy kafelek wg statusu (nie wg progów liczbowych).
+          # Kafelek nie przyjmuje koloru warunkowego, więc 3 karty `conditional`
+          # z kafelkiem w stałym kolorze; widoczna zawsze dokładnie jedna:
+          #   is_expensive=true → czerwony (priorytet)
+          #   is_cheap=true (i nie drogo) → zielony
+          #   pozostałe → żółty (amber)
+          - type: conditional
+            conditions:
+              - entity: sensor.pstryk_script_current_is_expensive
+                state: "true"
+            card:
+              type: tile
+              entity: sensor.pstryk_current_index
+              name: Ranking ceny — Drogo
+              icon: mdi:trending-up
+              color: red
+          - type: conditional
+            conditions:
+              - entity: sensor.pstryk_script_current_is_expensive
+                state_not: "true"
+              - entity: sensor.pstryk_script_current_is_cheap
+                state: "true"
+            card:
+              type: tile
+              entity: sensor.pstryk_current_index
+              name: Ranking ceny — Tanio
+              icon: mdi:trending-down
+              color: green
+          - type: conditional
+            conditions:
+              - entity: sensor.pstryk_script_current_is_expensive
+                state_not: "true"
+              - entity: sensor.pstryk_script_current_is_cheap
+                state_not: "true"
+            card:
+              type: tile
+              entity: sensor.pstryk_current_index
+              name: Ranking ceny — Średnio
+              icon: mdi:trending-neutral
+              color: amber
 
           - type: gauge
             entity: sensor.pstryk_buy_relative
