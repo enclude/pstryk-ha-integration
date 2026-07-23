@@ -61,7 +61,7 @@ docker run --rm \
 - `sensor.pstryk_today_cost` / `sensor.pstryk_today_revenue` / `sensor.pstryk_today_net_cost` — sum of `cost.energy_import_cost` / `energy_sold_value` / `energy_balance_value` over today (PLN, 2 dp); net = import cost − sold value
 - `sensor.pstryk_today_co2` — sum of `carbon.carbon_footprint` over today (g CO₂, 1 dp)
 - `sensor.pstryk_current_energy_import` / `sensor.pstryk_current_energy_export` / `sensor.pstryk_current_energy_balance` / `sensor.pstryk_current_cost` / `sensor.pstryk_current_revenue` / `sensor.pstryk_current_net_cost` / `sensor.pstryk_current_co2` — same `meter_values`/`cost`/`carbon` fields but for the **previous full hour** (single frame at `HOUR[current] − 1h`, via `frame_at`), because these are actuals and the hour that just started has no data when cron fires at HH:00:15. Each carries a `prev_hour_utc` attribute. `frame_at` preserves `0` and returns `null` for a missing frame.
-- `sensor.pstryk_today_prices` — state = Warsaw date; attribute `prices` holds the full Warsaw-day hourly array `[{t, buy, sell}]` (`t` = UTC ISO hour start, `buy` = `full_price`, `sell` = `price_prosumer_gross`, both rounded to 4 dp). Built from `BUY_JSON` (both fields already flattened). Intended for chart cards (e.g. ApexCharts `data_generator`).
+- `sensor.pstryk_today_prices` — state = Warsaw date; attribute `prices` holds the full Warsaw-day hourly array `[{t, buy, sell}]` (`t` = UTC ISO hour start, `buy` = `full_price`, `sell` = `price_prosumer_gross`, both rounded to 2 dp). Built from `BUY_JSON` (both fields already flattened). Intended for chart cards (e.g. ApexCharts `data_generator`).
 - `sensor.pstryk_current_buy_diff_min` / `sensor.pstryk_current_buy_diff_max` — buy − min/max (PLN/kWh)
 - `sensor.pstryk_current_sell_diff_min` / `sensor.pstryk_current_sell_diff_max` — sell − min/max (PLN/kWh)
 - `sensor.pstryk_buy_relative` / `sensor.pstryk_sell_relative` — current / avg_day (1.0=avg); computed with `calc()` helper (awk, guards null and div-by-zero)
@@ -73,6 +73,8 @@ docker run --rm \
 - `sensor.pstryk_daily_summary` — text summary of tomorrow's cheapest hours, sent at 21:00 Warsaw (also triggers `persistent_notification` in HA UI)
 
 **Daily summary (21:00 Warsaw)** — Sends both a `persistent_notification` and updates `sensor.pstryk_daily_summary` with tomorrow's 3 cheapest buy hours, day min/max, and a warning if any hours have negative prices (includes time range of negative-price block).
+
+**Price rounding** — All price/PLN values are rounded to 2 dp at emission via the `round()` helper (defined near `ha_post`): current/next buy+sell, hour +2/+3 buy, today min/max/avg buy+sell, tomorrow cheapest `price` attribute, and the `today_prices` array. Diffs and relatives use `calc()` (awk `%.2f`). Rankings/indices are unaffected — they are computed directly from `BUY_JSON`/`SELL_JSON` full-precision values, not from the rounded emitted vars.
 
 **HA POST logging** — Every `ha_post` call writes a JSON log entry to `/tmp/ha_pstryk/YYYY-MM-DD_HHMM.json`.
 

@@ -187,25 +187,16 @@ views:
             heading: Kolejne godziny
             heading_style: title
 
-          # Karta entities nie formatuje miejsc po przecinku w YAML, więc
-          # zaokrąglamy do 2 miejsc w szablonie (markdown). Surowe sensory
-          # pozostają w pełnej precyzji (dla automatyzacji).
-          - type: markdown
+          # Ceny są już zaokrąglone do 2 miejsc w skrypcie (przy wysyłce do HA).
+          - type: entities
             title: Następne godziny (zakup)
-            content: >
-              {% macro cena(e) %}{% set v = states(e) | float(none) %}{{
-              '%.2f'|format(v) ~ ' PLN/kWh' if v is not none else '—' }}{%
-              endmacro %}
-
-              | Godzina | Cena zakupu |
-
-              |:--|--:|
-
-              | **+1h** | {{ cena('sensor.pstryk_script_next_buy') }} |
-
-              | **+2h** | {{ cena('sensor.pstryk_hour_next2_buy') }} |
-
-              | **+3h** | {{ cena('sensor.pstryk_hour_next3_buy') }} |
+            entities:
+              - entity: sensor.pstryk_script_next_buy
+                name: +1h
+              - entity: sensor.pstryk_hour_next2_buy
+                name: +2h
+              - entity: sensor.pstryk_hour_next3_buy
+                name: +3h
 
           - type: entities
             title: Tanie godziny

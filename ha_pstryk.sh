@@ -385,6 +385,13 @@ ha_post() {       # ha_post <entity_id> <json_body>
        "$HA_IP/api/states/$1")
   echo "HA Response: $response"
 }
+
+# round <value> <decimals> — round a number for display; "null"/empty pass through.
+# Used to send all prices to HA at 2 dp (raw JSON values keep full precision for
+# rankings, which are computed directly from BUY_JSON/SELL_JSON, not these vars).
+round() {
+  if [[ -z "$1" || "$1" == "null" ]]; then echo "null"; else printf "%.${2}f" "$1"; fi
+}
 # --------------------------------------------------------------------------------
 
 cleanup_old_cache
@@ -592,8 +599,9 @@ for row in current next; do
   done
 
   for price in buy sell; do
+    pval=$(round "${A[$row,$price]}" 2)
     ha_post "sensor.pstryk_script_${row}_${price}" \
-            "{\"state\":\"${A[$row,$price]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\"}}"
+            "{\"state\":\"$pval\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\"}}"
   done
 done
 
@@ -709,8 +717,9 @@ else
 fi
 echo "Tomorrow cheapest hour (Warsaw): $tomorrow_cheapest_warsaw on $tomorrow_cheapest_date, price: $tomorrow_cheapest_price"
 
+tomorrow_cheapest_price_r=$(round "${tomorrow_cheapest_price:-null}" 2)
 ha_post "sensor.pstryk_tomorrow_cheapest_hour" \
-  "{\"state\":\"$tomorrow_cheapest_warsaw\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Tomorrow Cheapest Hour\",\"date\":\"$tomorrow_cheapest_date\",\"price\":${tomorrow_cheapest_price:-null},\"description\":\"Cheapest hour tomorrow (Warsaw local time HH:MM)\"}}"
+  "{\"state\":\"$tomorrow_cheapest_warsaw\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Tomorrow Cheapest Hour\",\"date\":\"$tomorrow_cheapest_date\",\"price\":${tomorrow_cheapest_price_r:-null},\"description\":\"Cheapest hour tomorrow (Warsaw local time HH:MM)\"}}"
 
 # Next cheap hour (first upcoming hour with is_cheap=true)
 next_cheap_utc=$(echo "$BUY_JSON" | jq -r --arg now "${HOUR[current]}" '
@@ -759,9 +768,9 @@ for slot in next2 next3; do
 done
 
 ha_post "sensor.pstryk_hour_next2_buy" \
-  "{\"state\":\"${A[next2,buy]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Hour +2 Buy Price\"}}"
+  "{\"state\":\"$(round "${A[next2,buy]}" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Hour +2 Buy Price\"}}"
 ha_post "sensor.pstryk_hour_next3_buy" \
-  "{\"state\":\"${A[next3,buy]}\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Hour +3 Buy Price\"}}"
+  "{\"state\":\"$(round "${A[next3,buy]}" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Hour +3 Buy Price\"}}"
 ha_post "sensor.pstryk_hour_next2_index" \
   "{\"state\":\"${A[next2,index]}\",\"attributes\":{\"unit_of_measurement\":\"\",\"friendly_name\":\"Pstryk Hour +2 Price Index\",\"description\":\"Dense price rank for hour +2 (0=cheapest, 23=most expensive)\"}}"
 ha_post "sensor.pstryk_hour_next3_index" \
@@ -779,9 +788,9 @@ today_max_buy=$(echo "$BUY_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UTC"
 echo "Today min buy: $today_min_buy, max buy: $today_max_buy, avg buy: $today_avg_full"
 
 ha_post "sensor.pstryk_today_min_buy" \
-  "{\"state\":\"$today_min_buy\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Min Buy Price\"}}"
+  "{\"state\":\"$(round "$today_min_buy" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Min Buy Price\"}}"
 ha_post "sensor.pstryk_today_max_buy" \
-  "{\"state\":\"$today_max_buy\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Buy Price\"}}"
+  "{\"state\":\"$(round "$today_max_buy" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Buy Price\"}}"
 today_avg_buy_rounded=$(printf "%.2f" "${today_avg_full:-0}")
 ha_post "sensor.pstryk_today_avg_buy" \
   "{\"state\":\"$today_avg_buy_rounded\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Buy Price\"}}"
@@ -802,11 +811,11 @@ today_avg_sell=$(echo "$SELL_JSON" | jq -r --arg day_start "$WARSAW_DAY_START_UT
 echo "Today min sell: $today_min_sell, max sell: $today_max_sell, avg sell: $today_avg_sell"
 
 ha_post "sensor.pstryk_today_min_sell" \
-  "{\"state\":\"$today_min_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Min Sell Price\"}}"
+  "{\"state\":\"$(round "$today_min_sell" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Min Sell Price\"}}"
 ha_post "sensor.pstryk_today_max_sell" \
-  "{\"state\":\"$today_max_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Sell Price\"}}"
+  "{\"state\":\"$(round "$today_max_sell" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Max Sell Price\"}}"
 ha_post "sensor.pstryk_today_avg_sell" \
-  "{\"state\":\"$today_avg_sell\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Sell Price\"}}"
+  "{\"state\":\"$(round "$today_avg_sell" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Sell Price\"}}"
 
 # ── TODAY HOURLY PRICE ARRAY (for charts, e.g. ApexCharts) ───────────────────
 # One sensor whose `prices` attribute holds the full Warsaw-day curve: buy
@@ -819,8 +828,8 @@ today_prices=$(echo "$BUY_JSON" | jq -c \
     | select(.start >= $day_start and .start <= $day_end)
     | {
         t:    .start,
-        buy:  (if .price_gross == null then null else (.price_gross * 10000 | round / 10000) end),
-        sell: (if .price_prosumer_gross == null then null else (.price_prosumer_gross * 10000 | round / 10000) end)
+        buy:  (if .price_gross == null then null else (.price_gross * 100 | round / 100) end),
+        sell: (if .price_prosumer_gross == null then null else (.price_prosumer_gross * 100 | round / 100) end)
       }]
 ')
 echo "Today prices array hours: $(echo "$today_prices" | jq 'length')"
@@ -869,10 +878,7 @@ today_net_cost=$(sum_today "metrics.cost.energy_balance_value")
 # Carbon footprint (g CO2)
 today_co2=$(sum_today "metrics.carbon.carbon_footprint")
 
-# round <value> <decimals>; passes "null" through unchanged
-round() {
-  if [[ -z "$1" || "$1" == "null" ]]; then echo "null"; else printf "%.${2}f" "$1"; fi
-}
+# round() is defined near ha_post (top of script)
 today_energy_import_r=$(round "$today_energy_import" 3)
 today_energy_export_r=$(round "$today_energy_export" 3)
 today_energy_balance_r=$(round "$today_energy_balance" 3)
@@ -963,9 +969,9 @@ calc() {
     echo "null"; return
   fi
   if [[ "$op" == "/" ]]; then
-    awk -v a="$a" -v b="$b" 'BEGIN { if (b != 0) printf "%.4f", a/b; else print "null" }'
+    awk -v a="$a" -v b="$b" 'BEGIN { if (b != 0) printf "%.2f", a/b; else print "null" }'
   else
-    awk -v a="$a" -v b="$b" 'BEGIN { printf "%.4f", a-b }'
+    awk -v a="$a" -v b="$b" 'BEGIN { printf "%.2f", a-b }'
   fi
 }
 
