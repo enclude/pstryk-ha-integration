@@ -113,16 +113,18 @@ views:
             icon: mdi:cash-plus
             color: green
 
-          - type: gauge
-            entity: sensor.pstryk_current_index
-            name: Ranking ceny (0=najtaniej)
-            min: 0
-            max: 23
-            needle: true
-            severity:
-              green: 0
-              yellow: 8
-              red: 16
+          # Ranking ceny — kolor wg statusu (nie wg progów liczbowych):
+          #   is_expensive=true → czerwony, is_cheap=true → zielony, inaczej → żółty.
+          # ha-alert: success=zielony, warning=żółty, error=czerwony (natywne w HA).
+          - type: markdown
+            content: |
+              {% set cheap = is_state('sensor.pstryk_script_current_is_cheap','true') %}
+              {% set exp = is_state('sensor.pstryk_script_current_is_expensive','true') %}
+              {% set idx = states('sensor.pstryk_current_index') %}
+              {% if exp %}{% set t = 'error' %}{% set label = 'Drogo' %}
+              {% elif cheap %}{% set t = 'success' %}{% set label = 'Tanio' %}
+              {% else %}{% set t = 'warning' %}{% set label = 'Średnio' %}{% endif %}
+              <ha-alert alert-type="{{ t }}" title="Ranking ceny: {{ idx }} / 23">{{ label }} — obecna cena zakupu na tle doby</ha-alert>
 
           - type: gauge
             entity: sensor.pstryk_buy_relative
@@ -157,15 +159,25 @@ views:
             heading: Kolejne godziny
             heading_style: title
 
-          - type: entities
+          # Karta entities nie formatuje miejsc po przecinku w YAML, więc
+          # zaokrąglamy do 2 miejsc w szablonie (markdown). Surowe sensory
+          # pozostają w pełnej precyzji (dla automatyzacji).
+          - type: markdown
             title: Następne godziny (zakup)
-            entities:
-              - entity: sensor.pstryk_script_next_buy
-                name: +1h
-              - entity: sensor.pstryk_hour_next2_buy
-                name: +2h
-              - entity: sensor.pstryk_hour_next3_buy
-                name: +3h
+            content: >
+              {% macro cena(e) %}{% set v = states(e) | float(none) %}{{
+              '%.2f'|format(v) ~ ' PLN/kWh' if v is not none else '—' }}{%
+              endmacro %}
+
+              | Godzina | Cena zakupu |
+
+              |:--|--:|
+
+              | **+1h** | {{ cena('sensor.pstryk_script_next_buy') }} |
+
+              | **+2h** | {{ cena('sensor.pstryk_hour_next2_buy') }} |
+
+              | **+3h** | {{ cena('sensor.pstryk_hour_next3_buy') }} |
 
           - type: entities
             title: Tanie godziny
