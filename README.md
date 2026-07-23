@@ -178,6 +178,8 @@ series:
 
 > 💡 Wskazówka: `curve: stepline` daje „schodki" godzinowe (cena jest stała w obrębie godziny). Dla gładkiej linii użyj `curve: smooth`.
 
+**Gotowy dashboard:** pełny przykładowy dashboard (wykres dobowy + cena teraz + prognoza + statystyki + zużycie/koszt/CO₂) znajdziesz w pliku [`dashboard-example.yaml`](dashboard-example.yaml). Wklej go przez Edytor nieprzetworzonej konfiguracji (Raw configuration editor) lub skopiuj pojedyncze karty.
+
 ### �🔧 Wymagania systemowe:
 
 - `curl` - żądania API i aktualizacje Home Assistant

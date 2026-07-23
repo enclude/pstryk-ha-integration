@@ -1,0 +1,282 @@
+# ==============================================================================
+# Przykładowy dashboard Home Assistant dla integracji Pstryk
+# ==============================================================================
+# Wykorzystuje sensory tworzone przez ha_pstryk.sh.
+#
+# Wymagany dodatek (HACS → Frontend): "ApexCharts Card" (RomRider/apexcharts-card).
+#
+# Jak użyć:
+#   Opcja A (pojedyncza karta): Ustawienia → Dashboardy → (twój dashboard) →
+#     ⋮ → "Edytuj dashboard" → "+ Dodaj kartę" → na dole "Ręcznie" →
+#     wklej wybrany fragment `type: ...`.
+#   Opcja B (cały widok): Edytuj dashboard → ⋮ → "Edytor nieprzetworzonej
+#     konfiguracji" (Raw configuration editor) → wklej całą sekcję `views:`.
+#
+# Wszystkie ceny w PLN/kWh, koszty w PLN, energia w kWh, CO₂ w g.
+# ==============================================================================
+
+title: Pstryk Energia
+views:
+  - title: Ceny energii
+    path: pstryk
+    icon: mdi:transmission-tower
+    type: sections
+    max_columns: 3
+    sections:
+      # ------------------------------------------------------------------
+      # SEKCJA 1: Wykres cen na cały dzień (ApexCharts)
+      # ------------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Ceny energii dziś
+              show_states: true
+              colorize_states: true
+            graph_span: 24h
+            span:
+              start: day            # oś od północy czasu lokalnego (Warszawa)
+            now:
+              show: true
+              label: teraz
+            yaxis:
+              - min: ~0
+                decimals: 2
+                apex_config:
+                  title:
+                    text: PLN/kWh
+            series:
+              - entity: sensor.pstryk_today_prices
+                name: Zakup
+                type: line
+                curve: stepline
+                stroke_width: 2
+                color: '#e45756'
+                data_generator: |
+                  return entity.attributes.prices.map(p => [new Date(p.t).getTime(), p.buy]);
+              - entity: sensor.pstryk_today_prices
+                name: Sprzedaż
+                type: line
+                curve: stepline
+                stroke_width: 2
+                color: '#54a24b'
+                data_generator: |
+                  return entity.attributes.prices.map(p => [new Date(p.t).getTime(), p.sell]);
+
+          # Wykres słupkowy ceny zakupu per godzina (kolor = tanio/drogo)
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Cena zakupu wg godziny
+            graph_span: 24h
+            span:
+              start: day
+            now:
+              show: true
+              label: teraz
+            yaxis:
+              - min: ~0
+                decimals: 2
+                apex_config:
+                  title:
+                    text: PLN/kWh
+            series:
+              - entity: sensor.pstryk_today_prices
+                name: Zakup
+                type: column
+                data_generator: |
+                  return entity.attributes.prices.map(p => [new Date(p.t).getTime(), p.buy]);
+            apex_config:
+              plotOptions:
+                bar:
+                  columnWidth: 80%
+
+      # ------------------------------------------------------------------
+      # SEKCJA 2: Cena teraz i status
+      # ------------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Teraz
+            heading_style: title
+
+          - type: tile
+            entity: sensor.pstryk_script_current_buy
+            name: Cena zakupu
+            icon: mdi:cash-minus
+            color: red
+
+          - type: tile
+            entity: sensor.pstryk_script_current_sell
+            name: Cena sprzedaży
+            icon: mdi:cash-plus
+            color: green
+
+          - type: gauge
+            entity: sensor.pstryk_current_index
+            name: Ranking ceny (0=najtaniej)
+            min: 0
+            max: 23
+            needle: true
+            severity:
+              green: 0
+              yellow: 8
+              red: 16
+
+          - type: gauge
+            entity: sensor.pstryk_buy_relative
+            name: Cena vs średnia dnia
+            min: 0
+            max: 2
+            needle: true
+            severity:
+              green: 0
+              yellow: 1
+              red: 1.3
+
+          - type: glance
+            title: Status godziny
+            columns: 2
+            entities:
+              - entity: sensor.pstryk_script_current_is_cheap
+                name: Tania?
+              - entity: sensor.pstryk_script_current_is_expensive
+                name: Droga?
+              - entity: sensor.pstryk_current_cheapest
+                name: Najtańsza dziś?
+              - entity: sensor.pstryk_price_relative
+                name: Rel. do śr.
+
+      # ------------------------------------------------------------------
+      # SEKCJA 3: Prognoza kolejnych godzin i tanie okna
+      # ------------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Kolejne godziny
+            heading_style: title
+
+          - type: entities
+            title: Następne godziny (zakup)
+            entities:
+              - entity: sensor.pstryk_script_next_buy
+                name: +1h
+              - entity: sensor.pstryk_hour_next2_buy
+                name: +2h
+              - entity: sensor.pstryk_hour_next3_buy
+                name: +3h
+
+          - type: entities
+            title: Tanie godziny
+            entities:
+              - entity: sensor.pstryk_next_cheap_hour
+                name: Następna tania godzina
+              - entity: sensor.pstryk_hours_until_cheap
+                name: Za ile godzin (tania)
+              - entity: sensor.pstryk_hours_until_cheap_today
+                name: Za ile godzin dziś
+              - entity: sensor.pstryk_cheap_hours_remaining
+                name: Tanich godzin pozostało dziś
+              - entity: sensor.pstryk_cheap_hours_today_total
+                name: Tanich godzin dziś łącznie
+              - entity: sensor.pstryk_next_cheap_block_hours
+                name: Długość kolejnego taniego bloku
+              - entity: sensor.pstryk_hours_until_cheap6_block
+                name: Do najtańszego bloku 6h
+              - entity: sensor.pstryk_tomorrow_cheapest_hour
+                name: Najtańsza godzina jutro
+
+      # ------------------------------------------------------------------
+      # SEKCJA 4: Statystyki cenowe dnia
+      # ------------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Statystyki dnia
+            heading_style: title
+
+          - type: glance
+            title: Zakup (min / śr / max)
+            columns: 3
+            entities:
+              - entity: sensor.pstryk_today_min_buy
+                name: Min
+              - entity: sensor.pstryk_today_avg_buy
+                name: Średnia
+              - entity: sensor.pstryk_today_max_buy
+                name: Max
+
+          - type: glance
+            title: Sprzedaż (min / śr / max)
+            columns: 3
+            entities:
+              - entity: sensor.pstryk_today_min_sell
+                name: Min
+              - entity: sensor.pstryk_today_avg_sell
+                name: Średnia
+              - entity: sensor.pstryk_today_max_sell
+                name: Max
+
+      # ------------------------------------------------------------------
+      # SEKCJA 5: Zużycie, koszt i CO₂ (dane rzeczywiste)
+      # ------------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Zużycie i koszt dziś
+            heading_style: title
+
+          - type: tile
+            entity: sensor.pstryk_today_cost
+            name: Koszt importu dziś
+            icon: mdi:cash-register
+            color: red
+
+          - type: tile
+            entity: sensor.pstryk_today_revenue
+            name: Przychód sprzedaży dziś
+            icon: mdi:cash-plus
+            color: green
+
+          - type: tile
+            entity: sensor.pstryk_today_net_cost
+            name: Bilans finansowy dziś
+            icon: mdi:scale-balance
+
+          - type: glance
+            title: Energia dziś
+            columns: 3
+            entities:
+              - entity: sensor.pstryk_today_energy_import
+                name: Import
+              - entity: sensor.pstryk_today_energy_export
+                name: Eksport
+              - entity: sensor.pstryk_today_energy_balance
+                name: Bilans
+
+          - type: tile
+            entity: sensor.pstryk_today_co2
+            name: Ślad węglowy dziś
+            icon: mdi:molecule-co2
+
+          - type: heading
+            heading: Poprzednia pełna godzina
+            heading_style: subtitle
+
+          - type: glance
+            title: Ostatnia zamknięta godzina
+            columns: 3
+            entities:
+              - entity: sensor.pstryk_current_cost
+                name: Koszt
+              - entity: sensor.pstryk_current_revenue
+                name: Przychód
+              - entity: sensor.pstryk_current_net_cost
+                name: Bilans
+              - entity: sensor.pstryk_current_energy_import
+                name: Import
+              - entity: sensor.pstryk_current_energy_export
+                name: Eksport
+              - entity: sensor.pstryk_current_co2
+                name: CO₂
