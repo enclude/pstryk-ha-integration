@@ -7,7 +7,8 @@
 #   ./ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
 #
 # Container usage (using environment variables):
-#   docker run --rm -e API_TOKEN="..." -e HA_IP="..." -e HA_TOKEN="..." -v /var/tmp:/var/tmp pstryk-ha
+#   docker run --rm -e API_TOKEN="..." -e HA_IP="..." -e HA_TOKEN="..." \
+#     -v /var/tmp:/var/tmp -v /var/lib/pstryk:/var/lib/pstryk pstryk-ha
 #
 # Cron job (runs every hour):
 #   1 * * * * /path/to/ha.sh "JhbGciOiJIUzI1NiIsInR5cCI6IkpXV" "http://homeAssistant.local:8123" "JXXD0WsJSfTzac[...]YUkIYJywndt1rqo"
@@ -53,6 +54,7 @@
 # Script Arguments: API_TOKEN, HA_IP, HA_TOKEN
 # Environment Variables: API_TOKEN, HA_IP, HA_TOKEN (for container use)
 # Cache Location: /var/tmp/pstryk_cache.txt + /var/tmp/pstryk_cache_timestamps.txt
+# History DB: /var/lib/pstryk/pstryk_history.sqlite (permanent, never pruned)
 # Cache Expiry: 55 minutes (CACHE_MAX_AGE_MINUTES)
 #
 # DATA FLOW:
@@ -135,7 +137,12 @@ echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
 
 # ── HISTORY DB CONFIG (SQLite, permanent — never pruned) ──────────────────────────
-SQLITE_DB="/var/tmp/pstryk_history.sqlite"
+# Deliberately NOT under /var/tmp: systemd-tmpfiles' default rule for /var/tmp
+# deletes files untouched for 30 days, which would silently defeat a "permanent"
+# archive during any extended outage. /var/lib is the standard home for durable
+# application state and isn't subject to that cleanup.
+SQLITE_DB="/var/lib/pstryk/pstryk_history.sqlite"
+mkdir -p "$(dirname "$SQLITE_DB")" 2>/dev/null || true
 echo "History DB: "$SQLITE_DB
 
 API_BASE="https://api.pstryk.pl/integrations"
