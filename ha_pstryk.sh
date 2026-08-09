@@ -134,6 +134,10 @@ CACHE_MAX_AGE_MINUTES=55
 echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
 
+# ── HISTORY DB CONFIG (SQLite, permanent — never pruned) ──────────────────────────
+SQLITE_DB="/var/tmp/pstryk_history.sqlite"
+echo "History DB: "$SQLITE_DB
+
 API_BASE="https://api.pstryk.pl/integrations"
 # Endpoint: /meter-data/unified-metrics/?metrics=meter_values,cost,carbon,pricing&resolution=hour
 # pricing fields live under frames[].metrics.pricing.{field}; normalized to top-level after fetch.
@@ -157,6 +161,104 @@ declare -A HOUR
 echo "Local time (Warsaw): $(TZ='Europe/Warsaw' date +"%Y-%m-%d %H:%M:%S %Z")"
 echo "UTC time: $(TZ=UTC date +"%Y-%m-%d %H:%M:%S %Z")"
 # ────────────────────────────────────────────────────────────────────────────────
+
+# ── HISTORY DB FUNCTIONS ──────────────────────────────────────────────────────────
+# Unlike CACHE_FILE (55 min) and /tmp/ha_pstryk logs (lost on container restart),
+# this SQLite file is never pruned — it's the only place a year-old price/energy
+# reading survives, for historical trend analysis.
+SQLITE_AVAILABLE=0
+command -v sqlite3 >/dev/null 2>&1 && SQLITE_AVAILABLE=1
+[[ "$SQLITE_AVAILABLE" -eq 1 ]] || echo "sqlite3 not found, history DB disabled for this run" >&2
+
+read -r -d '' SQL_SCHEMA <<'SQL' || true
+PRAGMA journal_mode=WAL;
+CREATE TABLE IF NOT EXISTS frames (
+  frame_start          TEXT PRIMARY KEY,
+  frame_end            TEXT,
+  is_live              INTEGER,
+  is_cheap             INTEGER,
+  is_expensive         INTEGER,
+  full_price           REAL,
+  price_gross          REAL,
+  price_prosumer_gross REAL,
+  energy_import        REAL,
+  energy_export        REAL,
+  energy_balance       REAL,
+  cost_import          REAL,
+  cost_sold            REAL,
+  cost_balance         REAL,
+  carbon_footprint     REAL,
+  fetched_at           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_frames_fetched_at ON frames(fetched_at);
+
+CREATE TABLE IF NOT EXISTS raw_responses (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  fetched_at    TEXT NOT NULL,
+  window_start  TEXT,
+  window_end    TEXT,
+  response_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_raw_responses_fetched_at ON raw_responses(fetched_at);
+SQL
+
+# jq filters build literal SQL text (numbers/booleans unquoted, strings single-quoted
+# with '' escaping) — avoids relying on sqlite3 CLI's .import/.nullvalue quirks.
+read -r -d '' JQ_RAW_RESPONSE_SQL <<'JQ' || true
+def sqlstr(x): if x == null then "NULL" else ("'" + (x | tostring | gsub("'"; "''")) + "'") end;
+"INSERT INTO raw_responses (fetched_at, window_start, window_end, response_json) VALUES ("
++ sqlstr($fetched) + "," + sqlstr($wstart) + "," + sqlstr($wend) + "," + sqlstr($resp | tojson)
++ ");"
+JQ
+
+read -r -d '' JQ_FRAMES_SQL <<'JQ' || true
+def sqlnum(x): if x == null then "NULL" else (x | tostring) end;
+def sqlbool(x): if x == null then "NULL" elif x == true then "1" elif x == false then "0" else (x | tostring) end;
+def sqlstr(x): if x == null then "NULL" else ("'" + (x | tostring | gsub("'"; "''")) + "'") end;
+[ .frames[] |
+  "INSERT INTO frames (frame_start, frame_end, is_live, is_cheap, is_expensive, full_price, price_gross, price_prosumer_gross, energy_import, energy_export, energy_balance, cost_import, cost_sold, cost_balance, carbon_footprint, fetched_at) VALUES ("
+  + sqlstr(.start) + "," + sqlstr(.end) + "," + sqlbool(.is_live) + ","
+  + sqlbool(.metrics.pricing.is_cheap) + "," + sqlbool(.metrics.pricing.is_expensive) + ","
+  + sqlnum(.metrics.pricing.full_price) + "," + sqlnum(.metrics.pricing.price_gross) + ","
+  + sqlnum(.metrics.pricing.price_prosumer_gross) + ","
+  + sqlnum(.metrics.meter_values.energy_active_import_register) + ","
+  + sqlnum(.metrics.meter_values.energy_active_export_register) + ","
+  + sqlnum(.metrics.meter_values.energy_balance) + ","
+  + sqlnum(.metrics.cost.energy_import_cost) + ","
+  + sqlnum(.metrics.cost.energy_sold_value) + ","
+  + sqlnum(.metrics.cost.energy_balance_value) + ","
+  + sqlnum(.metrics.carbon.carbon_footprint) + ","
+  + sqlstr($fetched)
+  + ") ON CONFLICT(frame_start) DO UPDATE SET frame_end=excluded.frame_end, is_live=excluded.is_live, is_cheap=excluded.is_cheap, is_expensive=excluded.is_expensive, full_price=excluded.full_price, price_gross=excluded.price_gross, price_prosumer_gross=excluded.price_prosumer_gross, energy_import=excluded.energy_import, energy_export=excluded.energy_export, energy_balance=excluded.energy_balance, cost_import=excluded.cost_import, cost_sold=excluded.cost_sold, cost_balance=excluded.cost_balance, carbon_footprint=excluded.carbon_footprint, fetched_at=excluded.fetched_at;"
+] | join("\n")
+JQ
+
+db_init() {
+  [[ "$SQLITE_AVAILABLE" -eq 1 ]] || return 0
+  echo "$SQL_SCHEMA" | sqlite3 "$SQLITE_DB"
+}
+
+# db_archive_raw <response_json> <window_start> <window_end>
+# One permanent row per fresh API fetch (skipped on cache hits — data is unchanged).
+db_archive_raw() {
+  [[ "$SQLITE_AVAILABLE" -eq 1 ]] || return 0
+  local response="$1" wstart="$2" wend="$3" fetched_at
+  fetched_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  jq -nr --arg fetched "$fetched_at" --arg wstart "$wstart" --arg wend "$wend" --argjson resp "$response" \
+    "$JQ_RAW_RESPONSE_SQL" | sqlite3 "$SQLITE_DB"
+  echo "History DB: archived raw response at $fetched_at" >&2
+}
+
+# db_upsert_frames <json with .frames[], Z timestamps already normalized>
+# Upserts every frame in the fetch window (~48h) by frame_start on every run,
+# regardless of cache hit/miss, so actuals that firm up later overwrite forecasts.
+db_upsert_frames() {
+  [[ "$SQLITE_AVAILABLE" -eq 1 ]] || return 0
+  local json="$1" fetched_at
+  fetched_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  echo "$json" | jq -r --arg fetched "$fetched_at" "$JQ_FRAMES_SQL" | sqlite3 "$SQLITE_DB"
+  echo "History DB: upserted $(echo "$json" | jq '.frames | length') frames (run at $fetched_at)" >&2
+}
 
 # ── CACHE FUNCTIONS ─────────────────────────────────────────────────────────────
 # --- helpers -------------------------------------------------------------------
@@ -286,6 +388,7 @@ get_json() {      # hit one endpoint once and return its JSON, with cache fallba
     mv /var/tmp/tmp_timestamps_$$.txt "$CACHE_TIMESTAMP_FILE"
 
     echo "Cached data and timestamp for $cache_key" >&2
+    db_archive_raw "$response" "$START" "$STOP"
     echo "$response"
   else
     # Check if rate limited
@@ -395,6 +498,7 @@ round() {
 # --------------------------------------------------------------------------------
 
 cleanup_old_cache
+db_init
 
 # Single call to unified endpoint; flatten .metrics.pricing.* to top level
 # for backward compatibility with all existing jq expressions.
@@ -854,6 +958,8 @@ EXTRA_JSON=$(echo "$_RAW_JSON" | jq '
     (.end   |= gsub("Z$"; "+00:00"))
   )
 ')
+
+db_upsert_frames "$EXTRA_JSON"
 
 # sum_today <dotted.path> — sum a nested frame field over today's Warsaw day; "null" if none
 sum_today() {
