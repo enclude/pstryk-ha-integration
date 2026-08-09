@@ -233,20 +233,31 @@ def sqlstr(x): if x == null then "NULL" else ("'" + (x | tostring | gsub("'"; "'
 ] | join("\n")
 JQ
 
+# All three functions are best-effort: the history DB is an archival add-on, not
+# the script's core purpose (updating HA sensors), so a DB failure (locked file,
+# full disk, corrupt schema) must never abort the run via set -e/pipefail — it is
+# always caught in an if/else and only ever logged.
 db_init() {
   [[ "$SQLITE_AVAILABLE" -eq 1 ]] || return 0
-  echo "$SQL_SCHEMA" | sqlite3 "$SQLITE_DB"
+  if ! echo "$SQL_SCHEMA" | sqlite3 "$SQLITE_DB"; then
+    echo "History DB: schema init failed, disabling history DB for this run" >&2
+    SQLITE_AVAILABLE=0
+  fi
 }
 
 # db_archive_raw <response_json> <window_start> <window_end>
 # One permanent row per fresh API fetch (skipped on cache hits — data is unchanged).
 db_archive_raw() {
   [[ "$SQLITE_AVAILABLE" -eq 1 ]] || return 0
-  local response="$1" wstart="$2" wend="$3" fetched_at
+  local response="$1" wstart="$2" wend="$3" fetched_at sql
   fetched_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  jq -nr --arg fetched "$fetched_at" --arg wstart "$wstart" --arg wend "$wend" --argjson resp "$response" \
-    "$JQ_RAW_RESPONSE_SQL" | sqlite3 "$SQLITE_DB"
-  echo "History DB: archived raw response at $fetched_at" >&2
+  sql=$(jq -nr --arg fetched "$fetched_at" --arg wstart "$wstart" --arg wend "$wend" --argjson resp "$response" \
+    "$JQ_RAW_RESPONSE_SQL") || { echo "History DB: failed to build raw-response SQL, skipping archive" >&2; return 0; }
+  if printf 'PRAGMA busy_timeout=5000;\n%s\n' "$sql" | sqlite3 "$SQLITE_DB"; then
+    echo "History DB: archived raw response at $fetched_at" >&2
+  else
+    echo "History DB: failed to archive raw response, continuing without it" >&2
+  fi
 }
 
 # db_upsert_frames <json with .frames[], Z timestamps already normalized>
@@ -254,10 +265,20 @@ db_archive_raw() {
 # regardless of cache hit/miss, so actuals that firm up later overwrite forecasts.
 db_upsert_frames() {
   [[ "$SQLITE_AVAILABLE" -eq 1 ]] || return 0
-  local json="$1" fetched_at
+  local json="$1" fetched_at sql
   fetched_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  echo "$json" | jq -r --arg fetched "$fetched_at" "$JQ_FRAMES_SQL" | sqlite3 "$SQLITE_DB"
-  echo "History DB: upserted $(echo "$json" | jq '.frames | length') frames (run at $fetched_at)" >&2
+  sql=$(echo "$json" | jq -r --arg fetched "$fetched_at" "$JQ_FRAMES_SQL") || {
+    echo "History DB: failed to build frames SQL, skipping upsert" >&2; return 0;
+  }
+  if [[ -z "$sql" ]]; then
+    echo "History DB: no frames to upsert" >&2
+    return 0
+  fi
+  if printf 'PRAGMA busy_timeout=5000;\n%s\n' "$sql" | sqlite3 "$SQLITE_DB"; then
+    echo "History DB: upserted $(echo "$json" | jq '.frames | length') frames (run at $fetched_at)" >&2
+  else
+    echo "History DB: failed to upsert frames, continuing without it" >&2
+  fi
 }
 
 # ── CACHE FUNCTIONS ─────────────────────────────────────────────────────────────
