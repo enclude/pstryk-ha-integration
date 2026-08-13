@@ -52,7 +52,7 @@ docker run --rm \
 
 **Price ranking (`current_index`)** — Uses dense ranking: count of distinct `full_price` levels strictly cheaper than the current hour. Tied hours share the same rank, so values never skip (0, 1, 2… without gaps). Same logic applies to `current_index_sell` (uses `price_prosumer_gross`).
 
-**Home Assistant sensors updated per run (53 total):**
+**Home Assistant sensors updated per run (65 total):**
 - `sensor.pstryk_script_current_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_script_next_buy/sell/is_cheap/is_expensive`
 - `sensor.pstryk_current_cheapest` / `sensor.pstryk_next_cheapest`
@@ -65,6 +65,7 @@ docker run --rm \
 - `sensor.pstryk_hour_next3_buy` / `sensor.pstryk_hour_next3_index` — hour +3
 - `sensor.pstryk_today_min_buy` / `sensor.pstryk_today_max_buy` / `sensor.pstryk_today_avg_buy` — use `full_price`; avg rounded to 2 dp; filter: `!= null` (0 and negative are valid)
 - `sensor.pstryk_today_min_sell` / `sensor.pstryk_today_max_sell` / `sensor.pstryk_today_avg_sell` — use `price_prosumer_gross`; filter: `!= null`
+- `sensor.pstryk_next{6,10,12}h_max_buy` / `_avg_buy` / `_max_sell` / `_avg_sell` (12 sensors) — max/avg of `full_price` (buy) and `price_prosumer_gross` (sell) over the window starting at the next hour (current hour excluded — it has its own sensors), `[HOUR[next], HOUR[next]+Nh)`; attribute `hours_available` = frames actually present (windows may be truncated before tomorrow's prices publish); state `null` if window empty
 - `sensor.pstryk_today_energy_import` / `sensor.pstryk_today_energy_export` / `sensor.pstryk_today_energy_balance` — sum of `meter_values.energy_active_import_register` / `energy_active_export_register` / `energy_balance` over today (kWh, 3 dp); balance = import − export
 - `sensor.pstryk_today_cost` / `sensor.pstryk_today_revenue` / `sensor.pstryk_today_net_cost` — sum of `cost.energy_import_cost` / `energy_sold_value` / `energy_balance_value` over today (PLN, 2 dp); net = import cost − sold value
 - `sensor.pstryk_today_co2` — sum of `carbon.carbon_footprint` over today (g CO₂, 1 dp)

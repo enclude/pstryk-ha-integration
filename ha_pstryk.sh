@@ -949,6 +949,37 @@ ha_post "sensor.pstryk_today_max_sell" \
 ha_post "sensor.pstryk_today_avg_sell" \
   "{\"state\":\"$(round "$today_avg_sell" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Today Avg Sell Price\"}}"
 
+# ── NEXT 6/10/12h MAX / AVG BUY + SELL ───────────────────────────────────────
+# Forward-looking window starting at the NEXT hour (the current hour has its
+# own dedicated sensors). Before tomorrow's prices are published the tail of
+# a window may be missing, so each sensor carries `hours_available` = frames
+# actually present in it.
+for win in 6 10 12; do
+  win_end=$(TZ=UTC date -d "${HOUR[next]} + ${win} hours" +"%Y-%m-%dT%H:00:00+00:00")
+
+  read -r next_max_buy next_avg_buy next_hours_buy < <(echo "$BUY_JSON" | jq -r \
+    --arg from "${HOUR[next]}" --arg to "$win_end" '
+    [.frames[] | select(.start >= $from and .start < $to) | .full_price | select(. != null)] |
+    if length > 0 then "\(max) \(add / length) \(length)" else "null null 0" end
+  ')
+  read -r next_max_sell next_avg_sell next_hours_sell < <(echo "$SELL_JSON" | jq -r \
+    --arg from "${HOUR[next]}" --arg to "$win_end" '
+    [.frames[] | select(.start >= $from and .start < $to) | .price_gross | select(. != null)] |
+    if length > 0 then "\(max) \(add / length) \(length)" else "null null 0" end
+  ')
+
+  echo "Next ${win}h buy: max $next_max_buy, avg $next_avg_buy (${next_hours_buy}h); sell: max $next_max_sell, avg $next_avg_sell (${next_hours_sell}h)"
+
+  ha_post "sensor.pstryk_next${win}h_max_buy" \
+    "{\"state\":\"$(round "$next_max_buy" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Next ${win}h Max Buy Price\",\"hours_available\":$next_hours_buy}}"
+  ha_post "sensor.pstryk_next${win}h_avg_buy" \
+    "{\"state\":\"$(round "$next_avg_buy" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Next ${win}h Avg Buy Price\",\"hours_available\":$next_hours_buy}}"
+  ha_post "sensor.pstryk_next${win}h_max_sell" \
+    "{\"state\":\"$(round "$next_max_sell" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Next ${win}h Max Sell Price\",\"hours_available\":$next_hours_sell}}"
+  ha_post "sensor.pstryk_next${win}h_avg_sell" \
+    "{\"state\":\"$(round "$next_avg_sell" 2)\",\"attributes\":{\"unit_of_measurement\":\"PLN/kWh\",\"friendly_name\":\"Pstryk Next ${win}h Avg Sell Price\",\"hours_available\":$next_hours_sell}}"
+done
+
 # ── TODAY HOURLY PRICE ARRAY (for charts, e.g. ApexCharts) ───────────────────
 # One sensor whose `prices` attribute holds the full Warsaw-day curve: buy
 # (full_price) + sell (price_prosumer_gross) per hour. State = the Warsaw date.
