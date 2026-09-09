@@ -55,7 +55,7 @@
 # Environment Variables: API_TOKEN, HA_IP, HA_TOKEN (for container use)
 # Cache Location: /var/tmp/pstryk_cache.txt + /var/tmp/pstryk_cache_timestamps.txt
 # History DB: /var/lib/pstryk/pstryk_history.sqlite (permanent, never pruned)
-# Cache Expiry: 55 minutes (CACHE_MAX_AGE_MINUTES)
+# Cache Expiry: 8 minutes (CACHE_MAX_AGE_MINUTES)
 #
 # DATA FLOW:
 # ═════════════════════════════════════════════════════════════════════════════════
@@ -131,7 +131,7 @@ HA_TOKEN=$3
 # ── CACHE CONFIG ────────────────────────────────────────────────────────────────
 CACHE_FILE="/var/tmp/pstryk_cache.txt"
 CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
-CACHE_MAX_AGE_MINUTES=55
+CACHE_MAX_AGE_MINUTES=8
 
 echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE
@@ -1105,19 +1105,31 @@ echo "Prev-hour cost/revenue/net: $cur_cost_r / $cur_revenue_r / $cur_net_cost_r
 echo "Prev-hour CO2: $cur_co2_r g"
 
 PREV_ATTR="\"prev_hour_utc\":\"$PREV_HOUR_UTC\""
-ha_post "sensor.pstryk_current_energy_import" \
+
+# The API publishes actuals a few minutes after an hour closes, so a run that
+# fires right on the hour can find the previous hour still empty. Leave the
+# sensor at its last known value instead of overwriting it with "null".
+ha_post_actual() {   # ha_post_actual <value> <entity_id> <json_body>
+  if [[ "$1" == "null" ]]; then
+    echo "Skipping $2 - no data for $PREV_HOUR_UTC yet"
+    return
+  fi
+  ha_post "$2" "$3"
+}
+
+ha_post_actual "$cur_energy_import_r" "sensor.pstryk_current_energy_import" \
   "{\"state\":\"$cur_energy_import_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Energy Import\",\"description\":\"Energy imported during the previous full hour\"}}"
-ha_post "sensor.pstryk_current_energy_export" \
+ha_post_actual "$cur_energy_export_r" "sensor.pstryk_current_energy_export" \
   "{\"state\":\"$cur_energy_export_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Energy Export\",\"description\":\"Energy exported during the previous full hour\"}}"
-ha_post "sensor.pstryk_current_energy_balance" \
+ha_post_actual "$cur_energy_balance_r" "sensor.pstryk_current_energy_balance" \
   "{\"state\":\"$cur_energy_balance_r\",\"attributes\":{\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Energy Balance\",\"description\":\"Import minus export during the previous full hour\"}}"
-ha_post "sensor.pstryk_current_cost" \
+ha_post_actual "$cur_cost_r" "sensor.pstryk_current_cost" \
   "{\"state\":\"$cur_cost_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Cost\",\"description\":\"Cost of energy imported during the previous full hour\"}}"
-ha_post "sensor.pstryk_current_revenue" \
+ha_post_actual "$cur_revenue_r" "sensor.pstryk_current_revenue" \
   "{\"state\":\"$cur_revenue_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Revenue\",\"description\":\"Value of energy sold during the previous full hour\"}}"
-ha_post "sensor.pstryk_current_net_cost" \
+ha_post_actual "$cur_net_cost_r" "sensor.pstryk_current_net_cost" \
   "{\"state\":\"$cur_net_cost_r\",\"attributes\":{\"unit_of_measurement\":\"PLN\",\"device_class\":\"monetary\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour Net Cost\",\"description\":\"Import cost minus sold value during the previous full hour\"}}"
-ha_post "sensor.pstryk_current_co2" \
+ha_post_actual "$cur_co2_r" "sensor.pstryk_current_co2" \
   "{\"state\":\"$cur_co2_r\",\"attributes\":{\"unit_of_measurement\":\"g\",\"device_class\":\"carbon_dioxide\",$PREV_ATTR,\"friendly_name\":\"Pstryk Current Hour CO2 Footprint\",\"description\":\"Carbon footprint during the previous full hour\"}}"
 
 # ── CURRENT HOUR DIFFS AND RELATIVES ─────────────────────────────────────────
