@@ -55,7 +55,7 @@
 # Environment Variables: API_TOKEN, HA_IP, HA_TOKEN (for container use)
 # Cache Location: /var/tmp/pstryk_cache.txt + /var/tmp/pstryk_cache_timestamps.txt
 # History DB: /var/lib/pstryk/pstryk_history.sqlite (permanent, never pruned)
-# Cache Expiry: 8 minutes (CACHE_MAX_AGE_MINUTES)
+# Cache Expiry: 4 minutes (CACHE_MAX_AGE_MINUTES)
 #
 # DATA FLOW:
 # ═════════════════════════════════════════════════════════════════════════════════
@@ -131,7 +131,7 @@ HA_TOKEN=$3
 # ── CACHE CONFIG ────────────────────────────────────────────────────────────────
 CACHE_FILE="/var/tmp/pstryk_cache.txt"
 CACHE_TIMESTAMP_FILE="/var/tmp/pstryk_cache_timestamps.txt"
-CACHE_MAX_AGE_MINUTES=8
+CACHE_MAX_AGE_MINUTES=4
 
 echo "Cache file: "$CACHE_FILE
 echo "Cache timestamp file: "$CACHE_TIMESTAMP_FILE

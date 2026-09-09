@@ -37,8 +37,9 @@ docker run --rm \
 **Cache system** — Two files in `/var/tmp/`:
 - `pstryk_cache.txt` — base64-encoded JSON responses, keyed by `endpoint_YYYY-MM-DDTHH`
 - `pstryk_cache_timestamps.txt` — Unix timestamps for cache freshness checks
-- Cache expires after 8 minutes (`CACHE_MAX_AGE_MINUTES`). Fallback to stale cache on rate limit.
+- Cache expires after 4 minutes (`CACHE_MAX_AGE_MINUTES`). Fallback to stale cache on rate limit.
 - The short expiry exists so a second cron run within the same hour actually refetches. The cache key is per-hour (`endpoint_YYYY-MM-DDTHH`), so with the old 55-minute expiry an `HH:10` run would have hit the `HH:00` entry and seen nothing new. The API publishes `meter_values`/`cost`/`carbon` actuals a few minutes after an hour closes, so the `HH:00:15` run alone always missed the hour that just ended.
+- The expiry only *permits* a refetch, it never causes one — cron drives the call volume. At the current `HH:00` + `HH:10` schedule both runs refetch either way; the 4-minute setting just leaves headroom to add denser runs without touching this constant again.
 - This cache is pruned after 7 days and is NOT the long-term store — see History DB below.
 
 **History DB (SQLite, permanent)** — `/var/lib/pstryk/pstryk_history.sqlite`, deliberately NOT under `/var/tmp`: systemd-tmpfiles' default rule deletes files under `/var/tmp` untouched for 30 days, which would silently defeat a "permanent" archive during any extended outage. `/var/lib` is the standard home for durable application state and isn't subject to that cleanup. The script `mkdir -p`s the directory itself; Docker needs its own volume mount (`-v /var/lib/pstryk:/var/lib/pstryk`) separate from the `/var/tmp` cache mount. Requires `sqlite3` on PATH (installed in the Docker image); if absent, or if a write ever fails (locked/full disk), the script logs a warning and continues without it — the history DB is a best-effort archival add-on and never aborts the run.
