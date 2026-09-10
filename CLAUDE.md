@@ -38,8 +38,11 @@ docker run --rm \
 - `pstryk_cache.txt` — base64-encoded JSON responses, keyed by `endpoint_YYYY-MM-DDTHH`
 - `pstryk_cache_timestamps.txt` — Unix timestamps for cache freshness checks
 - Cache expires after 4 minutes (`CACHE_MAX_AGE_MINUTES`). Fallback to stale cache on rate limit.
-- The short expiry exists so a second cron run within the same hour actually refetches. The cache key is per-hour (`endpoint_YYYY-MM-DDTHH`), so with the old 55-minute expiry an `HH:10` run would have hit the `HH:00` entry and seen nothing new. The API publishes `meter_values`/`cost`/`carbon` actuals a few minutes after an hour closes, so the `HH:00:15` run alone always missed the hour that just ended.
-- The expiry only *permits* a refetch, it never causes one — cron drives the call volume. At the current `HH:00` + `HH:10` schedule both runs refetch either way; the 4-minute setting just leaves headroom to add denser runs without touching this constant again.
+- The short expiry lets a second cron run within the same hour actually refetch — the cache key is per-hour (`endpoint_YYYY-MM-DDTHH`), so at the old 55 minutes an `HH:10` run would have hit the `HH:00` entry and seen nothing new. The expiry only *permits* a refetch, never causes one; cron drives the call volume.
+- **Why sub-hour runs exist: the API publishes actuals provisionally, then revises them.** A closed hour's frame appears within ~10 seconds, so it is never *missing* — but it is initially incomplete. Measured against `raw_responses` on 2026-09-10 for the frame starting `09:00:00Z` (closed `10:00:00Z`): at `10:00:08Z` `cost.energy_balance_value` was `+0.07251875` with `meter_values.energy_active_export_register` still absent; at `10:05:08Z` the export reading (`0.354`) had landed and the value **changed sign** to `-0.06437993`, stable in every later fetch. The `HH:00` run computes cost from import alone and records a provisional number; a later run in the same hour corrects it.
+- This is why a naive "is the frame there yet" check is misleading — it tests presence, not completeness. Any lag query must compare *values* across successive fetches (see the history-DB section), not `IS NOT NULL`.
+- The `frames` table self-heals: `ON CONFLICT(frame_start) DO UPDATE` overwrites the provisional row on the next run. Sensors posted at `HH:00` are transiently wrong until the following run.
+- Caveat: the 5-minute figure comes from a single observed frame. The stabilization-time distribution across all frames has not been measured.
 - This cache is pruned after 7 days and is NOT the long-term store — see History DB below.
 
 **History DB (SQLite, permanent)** — `/var/lib/pstryk/pstryk_history.sqlite`, deliberately NOT under `/var/tmp`: systemd-tmpfiles' default rule deletes files under `/var/tmp` untouched for 30 days, which would silently defeat a "permanent" archive during any extended outage. `/var/lib` is the standard home for durable application state and isn't subject to that cleanup. The script `mkdir -p`s the directory itself; Docker needs its own volume mount (`-v /var/lib/pstryk:/var/lib/pstryk`) separate from the `/var/tmp` cache mount. Requires `sqlite3` on PATH (installed in the Docker image); if absent, or if a write ever fails (locked/full disk), the script logs a warning and continues without it — the history DB is a best-effort archival add-on and never aborts the run.
@@ -118,7 +121,45 @@ sqlite3 -header -column /var/lib/pstryk/pstryk_history.sqlite \
 sqlite3 /var/lib/pstryk/pstryk_history.sqlite \
   "SELECT COUNT(*), MIN(frame_start), MAX(frame_start) FROM frames;"
 
-# Inspect a specific archived raw API response
-sqlite3 /var/lib/pstryk/pstryk_history.sqlite \
-  "SELECT fetched_at, response_json FROM raw_responses ORDER BY fetched_at DESC LIMIT 1;" | jq .
+# List recent fetches without dragging out the payloads
+sqlite3 -header -column /var/lib/pstryk/pstryk_history.sqlite \
+  "SELECT rowid, fetched_at, window_start, length(response_json) AS bytes
+   FROM raw_responses ORDER BY fetched_at DESC LIMIT 20;"
+
+# Inspect the latest archived raw API response.
+# Select response_json ALONE — sqlite3 joins multiple columns with "|", which
+# would put a "fetched_at|" prefix in front of the JSON and break jq.
+sqlite3 -noheader /var/lib/pstryk/pstryk_history.sqlite \
+  "SELECT response_json FROM raw_responses ORDER BY fetched_at DESC LIMIT 1;" | jq .
+
+# Newest hour that has ANY actuals per fetch. NOTE: this measures presence, not
+# completeness — a frame shows up here ~10s after closing while its numbers are
+# still provisional. Do not use it to conclude "no lag"; use the revision queries below.
+sqlite3 -header -column /var/lib/pstryk/pstryk_history.sqlite \
+  "SELECT fetched_at,
+          (SELECT MAX(json_extract(f.value,'\$.start'))
+           FROM json_each(response_json,'\$.frames') f
+           WHERE json_extract(f.value,'\$.metrics.cost.energy_balance_value') IS NOT NULL
+          ) AS last_hour_with_data
+   FROM raw_responses ORDER BY fetched_at DESC LIMIT 48;"
+
+# One frame as seen by every successive fetch — shows whether the API revises actuals
+sqlite3 -header -column /var/lib/pstryk/pstryk_history.sqlite \
+  "SELECT r.fetched_at,
+          json_extract(f.value,'\$.metrics.cost.energy_balance_value') AS cost_bal
+   FROM raw_responses r, json_each(r.response_json,'\$.frames') f
+   WHERE json_extract(f.value,'\$.start') = '2026-09-10T09:00:00Z'
+   ORDER BY r.fetched_at;"
+
+# Every frame the API revised, with first sighting and time of stabilization
+sqlite3 -header -column /var/lib/pstryk/pstryk_history.sqlite \
+  "WITH obs AS (
+     SELECT json_extract(f.value,'\$.start') AS fs, r.fetched_at AS t,
+            json_extract(f.value,'\$.metrics.cost.energy_balance_value') AS v
+     FROM raw_responses r, json_each(r.response_json,'\$.frames') f
+     WHERE json_extract(f.value,'\$.metrics.cost.energy_balance_value') IS NOT NULL)
+   SELECT fs, COUNT(DISTINCT v) AS versions, MIN(t) AS first_seen,
+          MIN(CASE WHEN v = (SELECT v FROM obs x WHERE x.fs=obs.fs ORDER BY t DESC LIMIT 1)
+                   THEN t END) AS settled_at
+   FROM obs GROUP BY fs HAVING COUNT(DISTINCT v) > 1 ORDER BY fs DESC LIMIT 30;"
 ```
